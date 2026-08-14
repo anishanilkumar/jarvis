@@ -78,6 +78,27 @@ async function fetchConfig(): Promise<void> {
   }
 }
 
+/** First paint, racing the stream.
+ *
+ * The stream does send a full snapshot on connect, so this is redundant on a
+ * good day. It is not redundant the first time a device runs a new bundle:
+ * there is no cached state to hydrate from, and until that first SSE event
+ * lands every tile reads "waiting for data". Anything that delays it — a
+ * proxy buffering the response, a WebView holding the first chunk — leaves
+ * the wall blank with a perfectly healthy Pi three metres away.
+ *
+ * Whichever arrives first wins; `merge` makes the loser a no-op.
+ */
+async function fetchState(): Promise<void> {
+  try {
+    const response = await fetch('/api/state')
+    if (response.ok) merge(await response.json())
+  } catch {
+    // The stream is the primary path. If both fail we're genuinely offline,
+    // which the watchdog and the error handler already say out loud.
+  }
+}
+
 function alive(): void {
   lastMessageAt = Date.now()
   failures = 0
@@ -96,6 +117,10 @@ function scheduleReconnect(): void {
 export function connect(): void {
   source?.close()
   lastMessageAt = Date.now()
+  // Snapshot now, stream from here on. Also covers the reconnect case: after a
+  // dropped connection the tiles are as stale as the outage was long, and
+  // waiting for the next push to correct them shows old times for no reason.
+  void fetchState()
   source = new EventSource('/api/stream')
 
   source.addEventListener('open', alive)

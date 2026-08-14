@@ -12,7 +12,7 @@
  * showing yesterday's tram times.
  */
 
-const VERSION = 'jarvis-v1'
+const VERSION = 'jarvis-v2'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -58,6 +58,32 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (url.pathname.startsWith('/api/')) return
+
+  // The document is network-first, and this is not a preference.
+  //
+  // The cache-first rule below is justified by content hashing, which is true
+  // of everything Vite emits and false of index.html — the one file that names
+  // those hashes. Precached cache-first, it pins a client to whatever build it
+  // first saw: new assets ship, the stale document never asks for them, and the
+  // panel renders the old bundle forever. sw.js itself is byte-identical across
+  // deploys, so nothing prompts an update either. Observed on the wall tablet,
+  // which sat two builds behind while the Pi served the current one.
+  //
+  // Cache is still the fallback, so a cold boot with the Pi down still paints.
+  if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone()
+            void caches.open(VERSION).then((cache) => cache.put('/index.html', copy))
+          }
+          return response
+        })
+        .catch(() => caches.match('/index.html').then((hit) => hit ?? Response.error())),
+    )
+    return
+  }
 
   // Static assets: cache first. They're content-hashed by Vite, so a stale hit
   // is impossible — a changed build produces a different URL.
