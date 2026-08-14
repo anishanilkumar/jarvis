@@ -1,0 +1,193 @@
+/* Jarvis panel — "machined instrument", not glowing sci-fi.
+ *
+ * The brief is the Iron Man HUD, and the design commits to it. What it refuses
+ * is the usual execution: hairline strokes, hex grids, drifting particles and
+ * decorative 9px text. On this screen — 1920x1200, read at 1-3m, lit 24h a day
+ * — 1px rules disappear, tiny labels are a lie about legibility, and constant
+ * motion is exhausting at 11pm and heats a Snapdragon 680 for nothing.
+ *
+ * The reading that survives contact with a wall: the MCU HUDs are precision
+ * optics. Engraved arcs, index ticks, machined bezels. Closer to an aviation
+ * chronograph than to a screensaver. Build the instrument, drop the particles.
+ *
+ * Fonts are self-hosted, not fetched from a CDN: a panel that loses its
+ * typeface when the internet drops is not offline-capable.
+ */
+
+@font-face {
+  font-family: 'Archivo';
+  src: url('/fonts/archivo-var.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plex Mono';
+  src: url('/fonts/plexmono-400.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plex Mono';
+  src: url('/fonts/plexmono-500.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+
+:root {
+  /* ---- Palette --------------------------------------------------------
+   * The escape from generic neon-on-black: Iron Man is gold AND arc-blue,
+   * not blue alone. Two accent temperatures means "important" can actually
+   * be distinguished from "live", which one hue can never do.
+   */
+  --ground: #0a0e14;   /* deep anodized navy-slate. Never pure black —      */
+                       /* #000 on an LCD reads as a dead panel, not a dark one */
+  --panel: #111823;    /* raised instrument face                            */
+  --panel-lit: #16202e;/* the expanded/focused instrument                   */
+  --arc: #3dd6f5;      /* live data, primary readouts                       */
+  --arc-dim: #1d7f96;  /* arc at rest — labels, inactive ticks              */
+  --gold: #e8a33d;     /* warm/human data and warnings (delays)             */
+  --alert: #ff4d4d;    /* cancellations only. Rare, so it reads             */
+  --engrave: #2a3543;  /* rules and corner brackets                         */
+  --ink: #e8f1f8;      /* primary text                                      */
+  --ink-dim: #7c8fa3;  /* secondary text, timestamps                        */
+
+  /* Offline substitutes. Swapped in wholesale by [data-connection] below,
+   * so no component needs to know it is drawing an offline state. */
+  --slate: #55647a;
+  --slate-dim: #3a4657;
+
+  /* ---- Type -----------------------------------------------------------
+   * Archivo carries the readouts; Plex Mono carries labels, timestamps and
+   * status. The mono is where the instrument feeling actually comes from —
+   * engraved, not luminous.
+   */
+  --face-data: 'Archivo', system-ui, sans-serif;
+  --face-mono: 'Plex Mono', ui-monospace, 'Roboto Mono', monospace;
+
+  /* Scale tuned for 2m viewing. Nothing below 16px, ever — a HUD full of
+   * unreadable micro-text is decoration pretending to be information. */
+  --t-hero: 148px;   /* the one number a tile exists to show */
+  --t-major: 76px;
+  --t-readout: 48px;
+  --t-body: 26px;
+  --t-label: 18px;   /* uppercase, wide tracking */
+  --t-min: 16px;     /* floor */
+
+  --track-label: 0.16em;
+
+  /* ---- Structure ------------------------------------------------------ */
+  --rule: 2px;                    /* 1px vanishes at 2m */
+  --gap: 22px;
+  --pad: 28px;
+  --bracket: 26px;                /* corner bracket arm length */
+
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* Losing the Pi desaturates the whole panel to slate and lets the reactor ring
+ * break. It should read as an instrument on backup power, not a broken web
+ * page. Doing it with token substitution means every widget inherits the
+ * offline look without a single conditional in component code. */
+:root[data-connection='offline'] {
+  --arc: var(--slate);
+  --arc-dim: var(--slate-dim);
+  --gold: #8a7350;
+  --ink: #b9c4d1;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#panel {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;               /* a wall panel never scrolls */
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--face-data);
+  /* Tabular numerals are not optional: without them a departure counting
+   * 11 -> 10 -> 9 visibly reflows, and the whole board twitches. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  cursor: none;                   /* no mouse on a wall */
+}
+
+/* ---- Shared instrument primitives ------------------------------------ */
+
+.label {
+  font-family: var(--face-mono);
+  font-size: var(--t-label);
+  font-weight: 500;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--arc-dim);
+}
+
+.stamp {
+  font-family: var(--face-mono);
+  font-size: var(--t-min);
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+/* Corner brackets rather than full boxes: lighter, and it is the machined
+ * bezel motif rather than a card. */
+.instrument {
+  position: relative;
+  background: var(--panel);
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  transition: background 220ms var(--ease);
+}
+
+.instrument::before,
+.instrument::after {
+  content: '';
+  position: absolute;
+  width: var(--bracket);
+  height: var(--bracket);
+  border: var(--rule) solid var(--engrave);
+  pointer-events: none;
+}
+.instrument::before {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+}
+.instrument::after {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+}
+
+.instrument[data-expired='true'] {
+  /* Past its useful_for the tile goes quiet rather than showing a number that
+   * is no longer true. */
+  opacity: 0.34;
+}
+
+/* The only motion in the resting state is the reactor sweep. Everything else
+ * animates solely on change, so movement always means something. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

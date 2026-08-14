@@ -1,0 +1,112 @@
+.reactor {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.reactor-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Engraved ring --------------------------------------------------- */
+
+.tick {
+  stroke: var(--engrave);
+  stroke-width: 2;
+}
+.tick.major {
+  stroke-width: 3;
+}
+/* Minutes already elapsed in the hour read as lit index marks. It's a real
+   reading of the dial, not decoration — you can see how far into the hour you
+   are without parsing the digits. */
+.tick[data-passed='true'] {
+  stroke: var(--arc-dim);
+}
+.tick.major[data-passed='true'] {
+  stroke: var(--arc);
+}
+
+/* The connection ring. Solid means the stream is open; broken dashes mean the
+   Pi is unreachable. This is the panel's primary offline signal. */
+.ring {
+  fill: none;
+  stroke: var(--arc-dim);
+  stroke-width: 2;
+  transition: stroke 400ms var(--ease), stroke-dasharray 400ms var(--ease);
+}
+.reactor[data-offline='true'] .ring {
+  stroke: var(--slate-dim);
+  stroke-dasharray: 7 11;
+}
+
+.sweep {
+  stroke: var(--arc);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.5;
+  transform-origin: 100px 100px;
+  /* Steps, not a smooth glide: an instrument indexes, it doesn't drift. */
+  transition: transform 120ms var(--ease);
+}
+.reactor[data-offline='true'] .sweep {
+  opacity: 0.2;
+}
+
+/* ---- Voice ring ------------------------------------------------------- */
+
+.voice-ring {
+  fill: none;
+  stroke: var(--gold);
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
+}
+.reactor[data-listening='true'] .voice-ring {
+  opacity: 0.85;
+}
+
+/* ---- Face ------------------------------------------------------------- */
+
+.reactor-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.reactor-time {
+  font-size: var(--t-major);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* The colon blinks, the digits don't move. Tabular numerals plus a fixed-width
+   colon slot means the time never reflows. */
+.colon {
+  display: inline-block;
+  width: 0.34em;
+  text-align: center;
+  color: var(--arc);
+  transition: opacity 200ms var(--ease);
+}
+.colon[data-tick='false'] {
+  opacity: 0.25;
+}
+
+.reactor-status {
+  margin-top: 4px;
+  color: var(--gold);
+}
+.reactor-status.offline {
+  color: var(--slate);
+}

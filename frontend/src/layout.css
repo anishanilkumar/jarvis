@@ -1,0 +1,131 @@
+/* 4x3 instrument panel, sized for the HONOR Pad X8a's 1920x1200 landscape.
+   Fixed rather than responsive: this runs on one known screen bolted to a
+   wall, and a layout that reflows for hypothetical viewports would just be
+   less precise on the only one that exists. */
+
+.panel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  grid-auto-flow: dense;
+  gap: var(--gap);
+  padding: var(--gap);
+  height: 100%;
+  width: 100%;
+  background: var(--ground);
+}
+
+.tile-stamp {
+  margin-top: auto;
+  padding-top: 12px;
+  color: var(--slate);
+}
+
+/* ---- Detail view ------------------------------------------------------ */
+
+.detail-wrap {
+  position: fixed;
+  inset: 0;
+  padding: var(--gap);
+  background: var(--ground);
+  display: grid;
+  animation: detail-in 180ms var(--ease);
+}
+
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+.detail {
+  background: var(--panel-lit);
+  height: 100%;
+  gap: var(--gap);
+}
+
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 14px;
+  border-bottom: var(--rule) solid var(--engrave);
+  margin-bottom: 8px;
+}
+
+/* ---- Shared widget interior patterns --------------------------------- */
+
+.hero {
+  font-size: var(--t-hero);
+  font-weight: 600;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.readout {
+  font-size: var(--t-readout);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.body {
+  font-size: var(--t-body);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.spread {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.muted {
+  color: var(--ink-dim);
+}
+
+.arc {
+  color: var(--arc);
+}
+
+.gold {
+  color: var(--gold);
+}
+
+.alert {
+  color: var(--alert);
+}
+
+/* An empty or failed tile still says something specific. "No data" with a
+   reason beats a blank rectangle that could mean anything. */
+.void {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--slate);
+  font-family: var(--face-mono);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  text-align: center;
+}

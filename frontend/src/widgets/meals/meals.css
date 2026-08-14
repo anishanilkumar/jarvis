@@ -1,0 +1,44 @@
+.meal-today {
+  justify-content: center;
+  gap: 12px;
+}
+
+.meal-entry {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+/* Gold, not red: a missing ingredient is a thing to notice on the way out, not
+   an emergency. Red is reserved for cancelled trams. */
+.meal-missing {
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.meal-ok {
+  color: var(--arc-dim);
+  white-space: nowrap;
+}
+
+.meal-later {
+  border-top: var(--rule) solid var(--engrave);
+  padding-top: 12px;
+}
+
+.meal-full {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 0;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+.meal-full:last-child {
+  border-bottom: none;
+}
+
+.meal-desc {
+  max-height: 8em;
+  overflow: hidden;
+}

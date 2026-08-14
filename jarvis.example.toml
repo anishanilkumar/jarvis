@@ -1,0 +1,179 @@
+# Jarvis — the one file you edit to tune the wall display.
+#
+# Copy to jarvis.toml and edit. jarvis.toml is gitignored so your real stop,
+# coordinates and hostnames stay out of version control.
+#
+# Everything here is read at startup by backend/jarvis/config.py and served to
+# the frontend at /api/config, so a change here needs only a service restart —
+# never a code change.
+
+[general]
+timezone = "Europe/Berlin"
+# Locale for date/number formatting on the panel.
+locale = "en-GB"
+# Return to the ambient grid this long after the last touch.
+idle_return_seconds = 60
+
+# Force outbound HTTP over IPv4.
+#
+# The Pi disables IPv6 at the kernel (net.ipv6.conf.all.disable_ipv6 = 1), but
+# some upstreams still publish AAAA records — v6.bvg.transport.rest does, and
+# it is the only provider host that does. httpx then tries the IPv6 address and
+# hangs until the connect timeout, so the departure board was the one tile that
+# kept failing while curl succeeded in 0.3s (curl falls back fast via Happy
+# Eyeballs; asyncio does not).
+#
+# Set false on a host with working IPv6.
+force_ipv4 = true
+
+[household]
+# Names used by speaker ID to attribute writes. The voice enrollment step
+# (backend/jarvis/voice/enroll.py) creates one embedding file per member.
+members = ["you"]
+
+# ---------------------------------------------------------------------------
+# Location — used by weather, rain and sunrise/sunset.
+# Example: Berlin Hauptbahnhof. Change to wherever the panel hangs.
+# ---------------------------------------------------------------------------
+[location]
+latitude = 52.5251
+longitude = 13.3694
+name = "Mitte"
+
+# ---------------------------------------------------------------------------
+# Providers
+#
+# ttl          how often the Pi refreshes from upstream, seconds
+# stale_after  the Pi has data but it is older than this -> tile marked stale
+# useful_for   the TABLET can't reach the Pi -> cached data is shown this long,
+#              then the tile goes dark rather than showing something wrong.
+#              0 means "never expires" (local or slow-moving data).
+# ---------------------------------------------------------------------------
+
+[providers.clock]
+# The panel ticks seconds itself; this only keeps the date and timezone in sync,
+# so a short ttl here would just push a needless SSE event every second.
+ttl = 60
+stale_after = 0
+useful_for = 0            # local time never goes stale; the panel never looks dead
+
+[providers.weather]
+ttl = 600                 # 10 min
+stale_after = 3600
+useful_for = 10800        # 3h — hours-old temperature is still worth showing
+
+[providers.rain]
+ttl = 600
+stale_after = 1800
+useful_for = 1800         # 30 min — a stale 2h rain forecast is worthless
+
+[providers.departures]
+ttl = 30
+stale_after = 180
+# 10 min. Past this the countdowns FREEZE and only absolute times remain.
+# A countdown ticking down on stale data is actively wrong, and a display that
+# lies about your tram is worse than one that admits it doesn't know.
+useful_for = 600
+
+[providers.meals]
+ttl = 900                 # 15 min
+stale_after = 7200
+useful_for = 86400        # a dinner plan doesn't rot
+
+[providers.shopping]
+ttl = 300
+stale_after = 3600
+useful_for = 86400
+
+[providers.music]
+ttl = 0                   # event-driven only; never polls
+stale_after = 0
+useful_for = 0
+
+# ---------------------------------------------------------------------------
+# BVG departures — stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
+# Find another with: curl 'https://v6.bvg.transport.rest/locations?query=<name>'
+# ---------------------------------------------------------------------------
+[departures]
+api_base = "https://v6.bvg.transport.rest"
+stop_id = "900003201"
+stop_name = "Berlin Hauptbahnhof"
+# How far ahead to look, and how many departures to keep.
+duration_minutes = 60
+results = 12
+# Minutes from the front door to the platform. Departures you can no longer
+# catch are dimmed rather than hidden — knowing you just missed one is useful.
+walk_minutes = 4
+# Restrict to these modes; empty list means everything the stop serves.
+products = ["tram", "bus"]
+# Optional: only show these lines. Empty means all.
+lines = []
+
+# ---------------------------------------------------------------------------
+# Weather — Open-Meteo, no API key.
+# ---------------------------------------------------------------------------
+[weather]
+api_base = "https://api.open-meteo.com/v1/forecast"
+# 15-min buckets for the near-term rain strip (8 = next two hours).
+rain_buckets = 8
+forecast_days = 7
+# Probability at or above this reads as "rain likely" in the headline.
+rain_likely_threshold = 40
+
+# ---------------------------------------------------------------------------
+# Grocy — lives on the VPS; the Pi reaches it over the tailnet.
+# The API key comes from the GROCY_API_KEY environment variable (agenix), never
+# from this file.
+# ---------------------------------------------------------------------------
+[grocy]
+api_base = "https://grocy.example.com/api"
+# Which Grocy shopping list id to read and write. 1 is the default list.
+shopping_list_id = 1
+# Show the meal plan this many days ahead (today + tomorrow).
+meal_plan_days = 2
+
+# ---------------------------------------------------------------------------
+# Home Assistant — device layer and the relay that launches YouTube Music on
+# the tablet. Token comes from HA_TOKEN (agenix).
+# ---------------------------------------------------------------------------
+[homeassistant]
+api_base = "http://127.0.0.1:8123/api"
+# The Companion App's notify service, as HA names it once the tablet registers.
+notify_service = "notify/mobile_app_your_tablet"
+music_package = "com.google.android.apps.youtube.music"
+music_intent_action = "android.media.action.MEDIA_PLAY_FROM_SEARCH"
+
+# ---------------------------------------------------------------------------
+# Voice
+# ---------------------------------------------------------------------------
+[voice]
+# Off until the voice service is actually installed on the Pi: it needs the
+# venv (openwakeword + google-genai), a Piper voice model, a speaker-embedding
+# ONNX model, and GEMINI_API_KEY in jarvis-env.age. With this false the panel
+# doesn't prompt for the microphone or retry a WebSocket that nothing is
+# serving. Flip to true once the README's one-time setup is done.
+enabled = false
+wake_word = "hey_jarvis"
+# Raise toward 0.7 if it triggers off the TV; lower toward 0.4 if it misses you.
+wake_threshold = 0.55
+# Stop recording after this much silence following the wake word.
+silence_timeout_ms = 1200
+# Hard cap on a single command clip.
+max_command_seconds = 8
+# Cosine similarity above which an enrolled speaker is considered a match.
+# This identifies among a small enrolled set. It is NOT security — a recording
+# defeats it — so nothing dangerous is ever gated on it.
+speaker_match_threshold = 0.65
+# Answers are spoken in English regardless of the question's language: Piper
+# has no Malayalam voice, and a cloud TTS would reintroduce cost.
+tts_voice = "en_GB-alba-medium"
+
+[voice.stt]
+# The one proprietary dependency. Swap provider to "whisper" to go fully local
+# and offline, at the cost of much weaker Malayalam.
+provider = "gemini"
+model = "gemini-2.5-flash"
+# Free tier ceiling is 1500/day and 15/min. A household lands near 50/day; if
+# this budget is ever hit, something is retrying in a loop.
+daily_budget = 400
+languages = ["en", "ml"]

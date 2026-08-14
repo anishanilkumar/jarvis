@@ -1,0 +1,19 @@
+.music-last {
+  justify-content: center;
+  gap: 8px;
+}
+
+.music-query {
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.music-hint {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  line-height: 1.4;
+}

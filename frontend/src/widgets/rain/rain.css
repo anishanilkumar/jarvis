@@ -1,0 +1,80 @@
+/* The headline is the tile's answer, so it takes the free space; the bars are
+   a fixed reference strip underneath rather than the other way round. */
+.rain-headline {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  color: var(--ink-dim);
+  line-height: 1.2;
+}
+.rain-headline[data-wet='true'] {
+  color: var(--arc);
+}
+
+.rain-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 60px;
+  /* The baseline is what makes short bars read as a measurement against zero
+     rather than as debris at the bottom of an empty tile. */
+  border-bottom: var(--rule) solid var(--engrave);
+  padding-bottom: 2px;
+}
+
+.rain-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.rain-bar {
+  width: 100%;
+  background: var(--engrave);
+  transition: height 400ms var(--ease), background 400ms var(--ease);
+}
+.rain-bar[data-wet='true'] {
+  background: var(--arc);
+}
+
+/* ---- Detail ----------------------------------------------------------- */
+
+.rain-rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  margin-top: 16px;
+}
+
+.rain-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 90px 100px;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 0;
+}
+
+.rain-track {
+  height: 14px;
+  background: var(--engrave);
+}
+
+.rain-fill {
+  height: 100%;
+  background: var(--arc-dim);
+  transition: width 400ms var(--ease);
+}
+.rain-fill[data-wet='true'] {
+  background: var(--arc);
+}
+
+.rain-pct {
+  font-size: var(--t-body);
+  text-align: right;
+}
+
+.readout[data-wet='true'] {
+  color: var(--arc);
+}

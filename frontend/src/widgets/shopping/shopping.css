@@ -1,0 +1,65 @@
+.shop-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0;
+  /* Touch target: 44px minimum, and these are hit with a thumb from across a
+     kitchen counter rather than aimed with a cursor. */
+  min-height: 46px;
+}
+
+.shop-box {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: var(--rule) solid var(--arc-dim);
+  position: relative;
+  transition: border-color 160ms var(--ease);
+}
+
+.shop-item[data-done='true'] .shop-box::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  background: var(--arc);
+}
+
+.shop-name {
+  font-size: var(--t-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-item[data-done='true'] .shop-name {
+  color: var(--ink-dim);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.shop-amount {
+  margin-left: auto;
+}
+
+/* The write is in flight. Brief, but on a shared panel the alternative is two
+   people tapping the same item twice. */
+.shop-item[data-pending='true'] {
+  opacity: 0.5;
+}
+
+.shop-item[data-failed='true'] .shop-box {
+  border-color: var(--alert);
+}
+
+.shop-failed {
+  margin-left: auto;
+  color: var(--alert);
+}
