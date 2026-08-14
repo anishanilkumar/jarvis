@@ -1,0 +1,120 @@
+.dep-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.dep {
+  display: grid;
+  grid-template-columns: 92px 1fr auto auto;
+  align-items: baseline;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+.dep:last-child {
+  border-bottom: none;
+}
+
+/* Departures you can no longer physically reach are dimmed, not hidden.
+   Knowing you just missed one is itself useful — it tells you the next is the
+   one to plan around. */
+.dep[data-catchable='false'] {
+  opacity: 0.34;
+}
+
+.dep-line {
+  font-size: var(--t-readout);
+  font-weight: 700;
+  color: var(--arc);
+  letter-spacing: -0.02em;
+}
+/* Buses are the secondary mode at this stop; the colour split lets you find
+   the tram rows without reading a single character. */
+.dep[data-product='bus'] .dep-line {
+  color: var(--arc-dim);
+}
+
+.dep-dir {
+  font-size: var(--t-body);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dep-delay {
+  font-family: var(--face-mono);
+  font-size: var(--t-label);
+  font-weight: 500;
+  color: var(--gold);
+}
+
+.dep-when {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-self: end;
+  min-width: 130px;
+  justify-content: flex-end;
+}
+
+.dep-min {
+  font-size: var(--t-major);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.dep-unit {
+  font-family: var(--face-mono);
+  font-size: var(--t-label);
+  color: var(--ink-dim);
+}
+
+/* Frozen: we're offline past this tile's useful_for, so the countdown has
+   stopped and only the scheduled clock time remains. */
+.dep-when.frozen {
+  font-family: var(--face-mono);
+  font-size: var(--t-readout);
+  color: var(--slate);
+}
+
+.dep-when.cancelled {
+  font-family: var(--face-mono);
+  font-size: var(--t-body);
+  color: var(--alert);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.dep[data-cancelled='true'] .dep-line,
+.dep[data-cancelled='true'] .dep-dir {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  color: var(--slate);
+}
+
+.frozen-note {
+  color: var(--slate);
+}
+
+.dep-warning {
+  color: var(--gold);
+}
+
+.dep-warnings {
+  border-top: var(--rule) solid var(--engrave);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 30%;
+  overflow: hidden;
+}
+
+.dep-list-full .dep {
+  padding: 10px 0;
+}

@@ -1,0 +1,67 @@
+.talk {
+  position: fixed;
+  right: var(--gap);
+  bottom: var(--gap);
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: var(--rule) solid var(--engrave);
+  background: var(--panel);
+  color: var(--arc-dim);
+  display: grid;
+  place-items: center;
+  cursor: none;
+  transition: color 200ms var(--ease), border-color 200ms var(--ease),
+    background 200ms var(--ease);
+  z-index: 20;
+}
+
+.talk svg {
+  width: 36px;
+  height: 36px;
+}
+
+.talk[data-listening='true'] {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: var(--panel-lit);
+}
+
+/* No microphone permission, or not a secure context. Saying so quietly beats a
+   button that silently does nothing. */
+.talk[data-broken='true'] {
+  color: var(--slate-dim);
+  border-style: dashed;
+}
+
+.voice-caption {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--gap) + 18px);
+  transform: translateX(-50%);
+  max-width: 62%;
+  padding: 18px 28px;
+  background: var(--panel-lit);
+  border: var(--rule) solid var(--engrave);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 19;
+  animation: caption-in 160ms var(--ease);
+}
+
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+.voice-heard {
+  color: var(--ink-dim);
+}
+
+.voice-reply {
+  color: var(--arc);
+}

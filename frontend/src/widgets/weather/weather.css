@@ -1,0 +1,59 @@
+.wx-glyph {
+  color: var(--arc);
+  flex: none;
+}
+/* Storms and heavy rain are the conditions you change plans for. */
+.wx-glyph[data-icon='storm'],
+.wx-glyph[data-icon='snow'],
+.wx-glyph[data-icon='sleet'] {
+  color: var(--gold);
+}
+
+.wx-temp {
+  display: flex;
+  align-items: flex-start;
+  margin: auto 0;
+}
+
+.wx-deg {
+  font-size: var(--t-major);
+  font-weight: 400;
+  color: var(--arc);
+  line-height: 1;
+  margin-top: 0.1em;
+}
+
+.wx-foot {
+  border-top: var(--rule) solid var(--engrave);
+  padding-top: 12px;
+}
+
+/* ---- Detail: the week ------------------------------------------------- */
+
+.wx-week {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  margin-top: 12px;
+}
+
+.wx-day {
+  display: grid;
+  grid-template-columns: 120px 44px 90px 1fr;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 0;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+.wx-day:last-child {
+  border-bottom: none;
+}
+
+.wx-chance[data-wet='true'] {
+  color: var(--arc);
+}
+
+.wx-range {
+  text-align: right;
+}

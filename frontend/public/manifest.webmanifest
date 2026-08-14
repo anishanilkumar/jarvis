@@ -1,0 +1,9 @@
+{
+  "name": "Jarvis",
+  "short_name": "Jarvis",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0A0E14",
+  "theme_color": "#0A0E14"
+}
