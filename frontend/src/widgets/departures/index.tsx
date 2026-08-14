@@ -53,10 +53,25 @@ function clockTime(iso: string | null): string {
   return `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
 }
 
-function Row({ departure, expired, nowMs }: { departure: Departure; expired: boolean; nowMs: number }) {
+function Row({
+  departure,
+  walkMinutes,
+  expired,
+  nowMs,
+}: {
+  departure: Departure
+  walkMinutes: number
+  expired: boolean
+  nowMs: number
+}) {
   const minutes = minutesUntil(departure.when ?? departure.planned, nowMs)
-  const gone = minutes !== null && minutes < 0
-  const catchable = departure.catchable && !gone
+  // Derived here, not read off the server's flag, for the same reason the
+  // countdown is: the Pi computed `catchable` when it fetched, and a tram that
+  // was reachable then stops being reachable while the tile sits on the wall.
+  // Trusting the stale flag leaves a departure lit up as catchable minutes
+  // after it stopped being so.
+  const catchable =
+    !departure.cancelled && minutes !== null && minutes >= walkMinutes
 
   return (
     <li
@@ -113,7 +128,13 @@ function BoardBlock({
       ) : (
         <ul class="dep-list">
           {board.departures.slice(0, rows).map((departure) => (
-            <Row key={departure.trip_id} departure={departure} expired={expired} nowMs={nowMs} />
+            <Row
+              key={departure.trip_id}
+              departure={departure}
+              walkMinutes={board.walk_minutes}
+              expired={expired}
+              nowMs={nowMs}
+            />
           ))}
         </ul>
       )}

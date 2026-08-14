@@ -124,6 +124,7 @@ class Departures(Provider):
         only_lines = {line.upper() for line in board.get("lines") or []}
         include = board.get("directions") or []
         exclude = board.get("exclude_directions") or []
+        hide_unreachable = bool(board.get("hide_unreachable", False))
 
         departures: list[dict[str, Any]] = []
         for item in raw.get("departures", []):
@@ -137,6 +138,16 @@ class Departures(Provider):
             planned = item.get("plannedWhen")
             cancelled = bool(item.get("cancelled"))
             minutes = _minutes_until(when or planned, now)
+
+            # At the home stop, a departure you just missed is worth seeing —
+            # it tells you the next one is the one to plan around, which is why
+            # those are dimmed rather than dropped. Thirteen minutes away that
+            # reasoning inverts: a train leaving in one minute isn't a near
+            # miss, it's a row you can never act on, and three of them fill the
+            # board with trains that were never yours. Cancellations survive
+            # the cut if they're still far enough out to matter.
+            if hide_unreachable and minutes is not None and minutes < walk:
+                continue
 
             departures.append(
                 {

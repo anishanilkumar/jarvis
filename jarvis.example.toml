@@ -48,6 +48,12 @@ name = "Mitte"
 # useful_for   the TABLET can't reach the Pi -> cached data is shown this long,
 #              then the tile goes dark rather than showing something wrong.
 #              0 means "never expires" (local or slow-moving data).
+#
+# enabled    = false takes a tile off this panel without deleting the feature.
+#              The provider is never registered, so it never polls its upstream
+#              either, and the widget disappears because the panel renders what
+#              the Pi serves rather than what happens to be in the bundle.
+#              Defaults to true; one line to undo.
 # ---------------------------------------------------------------------------
 
 [providers.clock]
@@ -150,6 +156,11 @@ lines = []
 # # Door to THIS platform, not to the first stop — a connection board is only
 # # honest if it accounts for the time it takes to reach it.
 # walk_minutes = 10
+# # Drop what you couldn't reach anyway. At your own stop a just-missed service
+# # is worth seeing — it tells you which one to plan around, which is why those
+# # are dimmed rather than hidden. Far enough away that inverts: those rows are
+# # departures that were never yours, and they crowd out the ones that are.
+# hide_unreachable = true
 
 # ---------------------------------------------------------------------------
 # Weather — Open-Meteo, no API key.

@@ -65,6 +65,17 @@ class Config:
             "useful_for": block.get("useful_for", 900),
         }
 
+    def provider_enabled(self, slug: str) -> bool:
+        """Whether this provider runs at all.
+
+        `enabled = false` is how you take a tile off *this* panel without
+        deleting the feature: the provider is never registered, so it never
+        polls its upstream, and the widget disappears because the panel renders
+        what the Pi actually serves. Turning it back on is one line.
+        """
+        block = self._raw.get("providers", {}).get(slug, {})
+        return bool(block.get("enabled", True))
+
     @property
     def timezone(self) -> str:
         return self.section("general").get("timezone", "Europe/Berlin")

@@ -74,9 +74,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     scheduler = Scheduler(Cache(cfg.state_dir / "cache.json"), on_update)
 
+    skipped: list[str] = []
     for provider_cls in discover():
+        if not cfg.provider_enabled(provider_cls.slug):
+            skipped.append(provider_cls.slug)
+            continue
         scheduler.register(provider_cls(cfg, http), cfg.provider(provider_cls.slug))
     log.info("registered providers: %s", ", ".join(sorted(scheduler.providers)))
+    if skipped:
+        log.info("disabled providers: %s", ", ".join(sorted(skipped)))
 
     scheduler.start()
 
@@ -124,6 +130,10 @@ async def get_config(request: Request) -> dict[str, Any]:
             "",
         ),
         "voice_enabled": bool(cfg.section("voice").get("enabled", False)),
+        # The panel renders what the Pi actually serves. A widget folder exists
+        # in the bundle whether or not this household wants that tile, so the
+        # registered set — not the build — decides what goes on the wall.
+        "widgets": sorted(scheduler.providers),
         "useful_for": {slug: st.useful_for for slug, st in scheduler.states.items()},
     }
 
