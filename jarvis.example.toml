@@ -183,6 +183,9 @@ lines = []
 [news]
 feed_url = "https://feeds.bbci.co.uk/news/world/rss.xml"
 source_name = "BBC World"
+# Prefer a curated or regional feed over a "latest" one. A feed ordered by
+# filing time fills the tile with whatever was published most recently, which
+# on a wall you read in glances is noise with timestamps attached.
 # How many to keep, and how long each holds before the fade.
 headlines = 8
 rotate_seconds = 30

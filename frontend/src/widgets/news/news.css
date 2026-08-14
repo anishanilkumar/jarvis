@@ -78,7 +78,7 @@
    with no case, and 0.16em of tracking actively harms Malayalam by pulling
    apart the conjuncts the reader is matching on. Keep the engraved instrument
    look, drop the two rules that assume an alphabet. */
-.news-source {
+.news-source[data-native='true'] {
   font-family: var(--face-malayalam);
   text-transform: none;
   letter-spacing: 0.04em;
