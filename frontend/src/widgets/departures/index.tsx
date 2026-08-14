@@ -33,6 +33,7 @@ interface Board {
   stop: string
   toward: string
   walk_minutes: number
+  reachable_from: number
   departures: Departure[]
   warnings: string[]
 }
@@ -55,12 +56,12 @@ function clockTime(iso: string | null): string {
 
 function Row({
   departure,
-  walkMinutes,
+  reachableFrom,
   expired,
   nowMs,
 }: {
   departure: Departure
-  walkMinutes: number
+  reachableFrom: number
   expired: boolean
   nowMs: number
 }) {
@@ -71,7 +72,7 @@ function Row({
   // Trusting the stale flag leaves a departure lit up as catchable minutes
   // after it stopped being so.
   const catchable =
-    !departure.cancelled && minutes !== null && minutes >= walkMinutes
+    !departure.cancelled && minutes !== null && minutes >= reachableFrom
 
   return (
     <li
@@ -131,7 +132,7 @@ function BoardBlock({
             <Row
               key={departure.trip_id}
               departure={departure}
-              walkMinutes={board.walk_minutes}
+              reachableFrom={board.reachable_from ?? board.walk_minutes}
               expired={expired}
               nowMs={nowMs}
             />

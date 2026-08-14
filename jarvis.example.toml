@@ -91,6 +91,11 @@ ttl = 300
 stale_after = 3600
 useful_for = 86400
 
+[providers.news]
+ttl = 600                 # 10 min — a headline feed doesn't reward polling
+stale_after = 3600
+useful_for = 21600        # 6h
+
 [providers.music]
 ttl = 0                   # event-driven only; never polls
 stale_after = 0
@@ -120,6 +125,11 @@ results = 12
 # Minutes from the front door to the platform. Departures you can no longer
 # catch are dimmed rather than hidden — knowing you just missed one is useful.
 walk_minutes = 4
+# How much you'll stretch that by. walk_minutes is a comfortable walk, not a
+# hard floor: with a five minute walk, a tram in four is a brisk version of the
+# same walk, and writing it off is wrong in the direction that costs you the
+# tram. This is what you'll hustle, not slack in the timetable — keep it small.
+grace_minutes = 1
 
 # stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
 [[departures.boards]]
@@ -161,6 +171,21 @@ lines = []
 # # are dimmed rather than hidden. Far enough away that inverts: those rows are
 # # departures that were never yours, and they crowd out the ones that are.
 # hide_unreachable = true
+
+# ---------------------------------------------------------------------------
+# Headlines. Any RSS feed; one headline at a time with a crossfade, never a
+# scrolling ticker — moving text has to be chased to be read, which is the
+# wrong ask for a display you glance at from across a room.
+#
+# A non-Latin feed needs a font that has the script. The bundled Manjari covers
+# Malayalam; see frontend/public/fonts/README.md for adding another.
+# ---------------------------------------------------------------------------
+[news]
+feed_url = "https://feeds.bbci.co.uk/news/world/rss.xml"
+source_name = "BBC World"
+# How many to keep, and how long each holds before the fade.
+headlines = 8
+rotate_seconds = 30
 
 # ---------------------------------------------------------------------------
 # Weather — Open-Meteo, no API key.
