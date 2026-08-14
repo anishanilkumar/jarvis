@@ -114,7 +114,15 @@ async def get_config(request: Request) -> dict[str, Any]:
     return {
         "general": cfg.section("general"),
         "location": cfg.section("location"),
-        "stop_name": cfg.section("departures").get("stop_name", ""),
+        # The home stop is the first board's — boards are listed in journey
+        # order, so the first is the one you walk out of the door to.
+        "stop_name": next(
+            (
+                board.get("stop_name", "")
+                for board in cfg.section("departures").get("boards") or []
+            ),
+            "",
+        ),
         "voice_enabled": bool(cfg.section("voice").get("enabled", False)),
         "useful_for": {slug: st.useful_for for slug, st in scheduler.states.items()},
     }

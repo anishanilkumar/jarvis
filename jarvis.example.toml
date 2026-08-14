@@ -91,23 +91,65 @@ stale_after = 0
 useful_for = 0
 
 # ---------------------------------------------------------------------------
-# BVG departures — stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
-# Find another with: curl 'https://v6.bvg.transport.rest/locations?query=<name>'
+# BVG departures.
+#
+# Each [[departures.boards]] is one stop filtered to one direction of travel.
+# You leave the house going one way, so a board showing both directions wastes
+# half its rows on services heading away from where you're going. A second
+# board is how you show the connection you change onto.
+#
+# Find a stop id with:
+#   curl 'https://v6.bvg.transport.rest/locations?query=<name>'
+# Find the direction strings a stop actually reports with:
+#   curl 'https://v6.bvg.transport.rest/stops/<id>/departures?duration=120' \
+#     | jq -r '[.departures[] | "\(.line.name) -> \(.direction)"] | unique | .[]'
+# Run that second one before writing a filter. Direction strings are the
+# terminus as HAFAS spells it, which is not always how you'd say it.
 # ---------------------------------------------------------------------------
 [departures]
 api_base = "https://v6.bvg.transport.rest"
-stop_id = "900003201"
-stop_name = "Berlin Hauptbahnhof"
-# How far ahead to look, and how many departures to keep.
+# Defaults for every board; each may override them.
 duration_minutes = 60
 results = 12
 # Minutes from the front door to the platform. Departures you can no longer
 # catch are dimmed rather than hidden — knowing you just missed one is useful.
 walk_minutes = 4
-# Restrict to these modes; empty list means everything the stop serves.
-products = ["tram", "bus"]
+
+# stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
+[[departures.boards]]
+name = "Tram"
+stop_id = "900003201"
+stop_name = "Berlin Hauptbahnhof"
+# Shown under the board name as "toward ...". Cosmetic; say it how you say it.
+toward = "Ostbahnhof"
+# Restrict to these modes; empty or absent means everything the stop serves.
+products = ["tram"]
+# Keep only directions matching these fragments. Empty means all.
+directions = []
+# ...or drop the ones matching these. Excludes win over includes.
+#
+# Prefer whichever list is SHORTER. A line usually has one name for the way you
+# don't want and several for the way you do (short-turns, seasonal termini), so
+# excluding the wrong direction is normally both briefer and more durable.
+exclude_directions = []
 # Optional: only show these lines. Empty means all.
 lines = []
+
+# A second board for the connection you change onto — the stop you ride to and
+# switch at, so the tile reads as one journey. Delete if you don't change; add
+# more boards if you do. Fill in the ids and directions from the two curl
+# commands above; the placeholders below are shape, not real values.
+# [[departures.boards]]
+# name = "U-Bahn"
+# stop_id = "<id from the locations query>"
+# stop_name = "<how you'd say the stop>"
+# toward = "<where you're heading>"
+# products = ["subway"]
+# lines = ["<line>"]
+# directions = ["<terminus, spelled as the API reports it>"]
+# # Door to THIS platform, not to the first stop — a connection board is only
+# # honest if it accounts for the time it takes to reach it.
+# walk_minutes = 10
 
 # ---------------------------------------------------------------------------
 # Weather — Open-Meteo, no API key.

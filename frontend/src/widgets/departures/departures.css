@@ -1,18 +1,56 @@
+/* Boards stack in journey order: the stop you walk to, then the one you change
+   at. They split the tile's height evenly rather than the first one taking what
+   it likes — a connection you can't see is a connection you'll miss. */
+.dep-boards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dep-board {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.375rem;
+}
+
+.dep-board-head {
+  border-bottom: var(--rule) solid var(--engrave);
+  padding-bottom: 0.375rem;
+}
+
+/* The destination, not the stop. Dimmer than the board name because you learn
+   it once and then only ever read the numbers. */
+.dep-toward {
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+}
+
+.dep-none {
+  color: var(--slate);
+  padding: 0.5rem 0;
+}
+
 .dep-list {
   list-style: none;
   display: flex;
   flex-direction: column;
   justify-content: space-evenly;
-  gap: 4px;
+  gap: 0.25rem;
   overflow: hidden;
+  min-height: 0;
+  flex: 1;
 }
 
 .dep {
   display: grid;
-  grid-template-columns: 92px 1fr auto auto;
+  grid-template-columns: 5.75rem 1fr auto auto;
   align-items: baseline;
-  gap: 16px;
-  padding: 6px 0;
+  gap: 1rem;
+  padding: 0.375rem 0;
   border-bottom: var(--rule) solid var(--engrave);
 }
 .dep:last-child {
@@ -56,9 +94,9 @@
 .dep-when {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 0.375rem;
   justify-self: end;
-  min-width: 130px;
+  min-width: 8.125rem;
   justify-content: flex-end;
 }
 
@@ -67,6 +105,23 @@
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.03em;
+}
+
+/* Two boards in the height of one: the countdown drops a step so both fit
+   without either being cropped. Still the largest thing in the tile, which is
+   what actually matters — it stays the number you can read from the hallway. */
+.dep-boards[data-boards='2'] .dep-min {
+  font-size: var(--t-readout);
+}
+.dep-boards[data-boards='2'] .dep-line {
+  font-size: var(--t-body);
+}
+.dep-boards[data-boards='2'] .dep {
+  grid-template-columns: 3.5rem 1fr auto auto;
+  padding: 0.25rem 0;
+}
+.dep-boards[data-boards='2'] .dep-when {
+  min-width: 5.5rem;
 }
 
 .dep-unit {
@@ -107,14 +162,14 @@
 
 .dep-warnings {
   border-top: var(--rule) solid var(--engrave);
-  padding-top: 14px;
+  padding-top: 0.875rem;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
   max-height: 30%;
   overflow: hidden;
 }
 
 .dep-list-full .dep {
-  padding: 10px 0;
+  padding: 0.625rem 0;
 }

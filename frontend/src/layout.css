@@ -17,7 +17,7 @@
 
 .tile-stamp {
   margin-top: auto;
-  padding-top: 12px;
+  padding-top: 0.75rem;
   color: var(--slate);
 }
 
@@ -49,9 +49,9 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding-bottom: 14px;
+  padding-bottom: 0.875rem;
   border-bottom: var(--rule) solid var(--engrave);
-  margin-bottom: 8px;
+  margin-bottom: 0.5rem;
 }
 
 /* ---- Shared widget interior patterns --------------------------------- */
@@ -79,7 +79,7 @@
 .row {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 .spread {
@@ -91,7 +91,7 @@
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.625rem;
   min-height: 0;
 }
 

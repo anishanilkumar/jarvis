@@ -2,8 +2,10 @@
   position: fixed;
   right: var(--gap);
   bottom: var(--gap);
-  width: 84px;
-  height: 84px;
+  /* Floored in absolute px: this is a thumb target, and a thumb doesn't get
+     smaller when the CSS viewport does. */
+  width: max(5.25rem, 56px);
+  height: max(5.25rem, 56px);
   border-radius: 50%;
   border: var(--rule) solid var(--engrave);
   background: var(--panel);
@@ -17,8 +19,8 @@
 }
 
 .talk svg {
-  width: 36px;
-  height: 36px;
+  width: 2.25rem;
+  height: 2.25rem;
 }
 
 .talk[data-listening='true'] {
@@ -37,16 +39,16 @@
 .voice-caption {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--gap) + 18px);
+  bottom: calc(var(--gap) + 1.125rem);
   transform: translateX(-50%);
   max-width: 62%;
-  padding: 18px 28px;
+  padding: 1.125rem 1.75rem;
   background: var(--panel-lit);
   border: var(--rule) solid var(--engrave);
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
   z-index: 19;
   animation: caption-in 160ms var(--ease);
 }
@@ -54,7 +56,7 @@
 @keyframes caption-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translate(-50%, 0.5rem);
   }
 }
 
