@@ -2,24 +2,26 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
   overflow: hidden;
 }
 
 .shop-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 7px 0;
+  gap: 0.875rem;
+  padding: 0.4375rem 0;
   /* Touch target: 44px minimum, and these are hit with a thumb from across a
-     kitchen counter rather than aimed with a cursor. */
-  min-height: 46px;
+     kitchen counter rather than aimed with a cursor. Floored in absolute px
+     rather than scaled — a thumb is the same size whatever the viewport says,
+     so this is the one measurement that must not shrink with the type. */
+  min-height: max(2.875rem, 44px);
 }
 
 .shop-box {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 1.375rem;
+  height: 1.375rem;
   border: var(--rule) solid var(--arc-dim);
   position: relative;
   transition: border-color 160ms var(--ease);
@@ -28,7 +30,7 @@
 .shop-item[data-done='true'] .shop-box::after {
   content: '';
   position: absolute;
-  inset: 4px;
+  inset: 0.25rem;
   background: var(--arc);
 }
 

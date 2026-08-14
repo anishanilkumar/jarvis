@@ -1,13 +1,13 @@
 .meal-today {
   justify-content: center;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .meal-entry {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 20px;
+  gap: 1.25rem;
 }
 
 /* Gold, not red: a missing ingredient is a thing to notice on the way out, not
@@ -24,14 +24,14 @@
 
 .meal-later {
   border-top: var(--rule) solid var(--engrave);
-  padding-top: 12px;
+  padding-top: 0.75rem;
 }
 
 .meal-full {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 0;
+  gap: 0.625rem;
+  padding: 1.125rem 0;
   border-bottom: var(--rule) solid var(--engrave);
 }
 .meal-full:last-child {

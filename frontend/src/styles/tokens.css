@@ -64,22 +64,30 @@
   --face-data: 'Archivo', system-ui, sans-serif;
   --face-mono: 'Plex Mono', ui-monospace, 'Roboto Mono', monospace;
 
-  /* Scale tuned for 2m viewing. Nothing below 16px, ever — a HUD full of
-   * unreadable micro-text is decoration pretending to be information. */
-  --t-hero: 148px;   /* the one number a tile exists to show */
-  --t-major: 76px;
-  --t-readout: 48px;
-  --t-body: 26px;
-  --t-label: 18px;   /* uppercase, wide tracking */
-  --t-min: 16px;     /* floor */
+  /* Scale tuned for 2m viewing, expressed in rem against the root size set
+   * below. The numbers are the device pixels they were designed as: --t-hero
+   * is 9.25rem because 9.25 x 16 = 148. Authoring in rem is what makes the
+   * whole panel scale with one value instead of ninety.
+   *
+   * Nothing below 16 design px, ever — a HUD full of unreadable micro-text is
+   * decoration pretending to be information. */
+  --t-hero: 9.25rem;   /* 148 — the one number a tile exists to show */
+  --t-major: 4.75rem;  /* 76 */
+  --t-readout: 3rem;   /* 48 */
+  --t-body: 1.625rem;  /* 26 */
+  --t-label: 1.125rem; /* 18 — uppercase, wide tracking */
+  --t-min: 1rem;       /* 16 — floor */
 
   --track-label: 0.16em;
 
   /* ---- Structure ------------------------------------------------------ */
-  --rule: 2px;                    /* 1px vanishes at 2m */
-  --gap: 22px;
-  --pad: 28px;
-  --bracket: 26px;                /* corner bracket arm length */
+  /* Rules do NOT scale below 2px. Everything else may shrink; a hairline that
+   * rounds to a sub-pixel border renders as a grey smear or vanishes outright,
+   * and the engraved-bezel look is carried entirely by these. */
+  --rule: max(2px, 0.125rem);
+  --gap: 1.375rem;                /* 22 */
+  --pad: 1.75rem;                 /* 28 */
+  --bracket: 1.625rem;            /* 26 — corner bracket arm length */
 
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
@@ -99,6 +107,29 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* The one value the whole scale hangs off.
+ *
+ * The panel is authored for a 1920x1200 screen, but that is the tablet's
+ * *device* resolution, not its CSS viewport. Android reports CSS pixels scaled
+ * down by the device pixel ratio, so a 1920px-wide panel at DPR 2 is a 960px
+ * viewport — and a 148px headline lands at twice its intended physical size,
+ * blowing every fixed-height tile apart. That is not a "make the font smaller"
+ * bug; hardcoding smaller pixels just moves the breakage to a different DPR.
+ *
+ * Deriving the root size from the viewport makes it DPR-proof: the type always
+ * occupies the same fraction of the screen, so it comes out the same physical
+ * size on the wall whatever CSS pixels the browser decides to hand us.
+ *
+ *   0.8333vw = 16px at 1920 wide      1.3333vh = 16px at 1200 tall
+ *
+ * Taking min() of the two means an unexpected aspect ratio shrinks the type to
+ * fit rather than overflowing the short axis. The 8px floor stops a phone-sized
+ * viewport rendering something illegible instead of merely cramped.
+ */
+html {
+  font-size: max(8px, min(0.8333vw, 1.3333vh));
 }
 
 html,

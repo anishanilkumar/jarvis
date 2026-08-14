@@ -6,6 +6,9 @@
  * countdown still ticking down on data we can no longer refresh is actively
  * wrong, and a wall display that lies about your tram is worse than one that
  * admits it doesn't know.
+ *
+ * Boards stack: the stop you walk to, then the connection you change onto.
+ * Reading down the tile is reading the journey in order.
  */
 
 import { now } from '../../state'
@@ -25,10 +28,17 @@ interface Departure {
   platform: string | null
 }
 
-interface Data {
+interface Board {
+  name: string
   stop: string
+  toward: string
   walk_minutes: number
   departures: Departure[]
+  warnings: string[]
+}
+
+interface Data {
+  boards: Board[]
   warnings: string[]
 }
 
@@ -77,26 +87,72 @@ function Row({ departure, expired, nowMs }: { departure: Departure; expired: boo
   )
 }
 
+function BoardBlock({
+  board,
+  rows,
+  expired,
+  nowMs,
+}: {
+  board: Board
+  rows: number
+  expired: boolean
+  nowMs: number
+}) {
+  return (
+    <div class="dep-board">
+      <div class="spread dep-board-head">
+        <span class="label">
+          {board.name}
+          {board.toward && <span class="dep-toward"> → {board.toward}</span>}
+        </span>
+        <span class="stamp">{board.walk_minutes} min walk</span>
+      </div>
+
+      {board.departures.length === 0 ? (
+        <div class="dep-none label">nothing scheduled</div>
+      ) : (
+        <ul class="dep-list">
+          {board.departures.slice(0, rows).map((departure) => (
+            <Row key={departure.trip_id} departure={departure} expired={expired} nowMs={nowMs} />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function Card({ slice, expired }: WidgetProps<Data>) {
   const data = slice.data
   const nowMs = now.value
 
-  if (!data) {
+  // `boards` is defaulted rather than assumed. A panel is deployed as static
+  // files and the backend is deployed separately, so the two can be a version
+  // apart for a minute or two; reading .map off an older payload's missing key
+  // would take down the whole panel, not just this tile.
+  const boards = data?.boards ?? []
+
+  if (!data || boards.length === 0) {
     return <div class="void">{slice.error ? 'no departures' : 'waiting for data'}</div>
   }
 
+  // The tile height is fixed, so rows are divided between boards rather than
+  // added. Two boards of three beats one board of six that pushes the second
+  // stop off the bottom edge.
+  const rows = boards.length > 1 ? 3 : 6
+
   return (
     <div class="stack fill">
-      <div class="spread">
-        <span class="label">{data.stop}</span>
-        <span class="stamp">{data.walk_minutes} min walk</span>
-      </div>
-
-      <ul class="dep-list fill">
-        {data.departures.slice(0, 6).map((departure) => (
-          <Row key={departure.trip_id} departure={departure} expired={expired} nowMs={nowMs} />
+      <div class="dep-boards fill" data-boards={boards.length}>
+        {boards.map((board) => (
+          <BoardBlock
+            key={board.name || board.stop}
+            board={board}
+            rows={rows}
+            expired={expired}
+            nowMs={nowMs}
+          />
         ))}
-      </ul>
+      </div>
 
       {expired && <div class="label frozen-note">No live data · times are scheduled</div>}
       {!expired && data.warnings.length > 0 && (
@@ -109,15 +165,22 @@ function Card({ slice, expired }: WidgetProps<Data>) {
 function Detail({ slice, expired }: WidgetProps<Data>) {
   const data = slice.data
   const nowMs = now.value
-  if (!data) return <div class="void">no departures</div>
+  const boards = data?.boards ?? []
+  if (!data || boards.length === 0) return <div class="void">no departures</div>
 
   return (
     <div class="stack fill">
-      <ul class="dep-list dep-list-full fill">
-        {data.departures.map((departure) => (
-          <Row key={departure.trip_id} departure={departure} expired={expired} nowMs={nowMs} />
+      <div class="dep-boards dep-boards-full fill" data-boards={boards.length}>
+        {boards.map((board) => (
+          <BoardBlock
+            key={board.name || board.stop}
+            board={board}
+            rows={99}
+            expired={expired}
+            nowMs={nowMs}
+          />
         ))}
-      </ul>
+      </div>
 
       {data.warnings.length > 0 && (
         <div class="dep-warnings">

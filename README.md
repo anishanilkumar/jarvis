@@ -11,7 +11,7 @@ logic lives on the Pi, so features get added on a real machine and the tablet is
 never touched again.
 
 ```
-Tablet (WallPanel + HA Companion App)
+Tablet (Webview Kiosk + HA Companion App)
   │  https://dash.example.com
   │  ├── SSE      /api/stream       state pushed down
   │  ├── POST     /api/action/*     touch writes
@@ -89,10 +89,17 @@ need keys — each missing one degrades exactly one tile to a visible error.
 ## Deploying
 
 ```bash
-./deploy.sh              # builds the panel here, rsyncs, restarts the units
+JARVIS_HOST=you@yourpi ./deploy.sh
 ```
 
-`deploy.sh` needs `JARVIS_HOST` set (e.g. `pi@raspberrypi.local`).
+Builds the panel here, rsyncs panel + backend + `jarvis.toml`, restarts the
+units, and fails loudly if the backend doesn't come back healthy.
+
+`jarvis.toml` is gitignored, so a deploy is the only thing that carries config
+to the Pi — worth knowing, because a config that never arrives looks exactly
+like a feature that doesn't work. The previous copy is kept on the Pi as
+`jarvis.toml.bak-<timestamp>`. Set `JARVIS_SKIP_CONFIG=1` to leave the Pi's
+config alone; `JARVIS_REPO` and `JARVIS_WEB_ROOT` override the paths.
 
 The systemd units, the reverse-proxy vhost and the secrets live in a separate
 NixOS config repo. `nix/` here has both modules to copy in; on a non-NixOS box
@@ -136,11 +143,52 @@ useful error and voice is simply dead.
 
 ## Tablet setup
 
-- **WallPanel** (F-Droid): start URL, launch on boot, keep screen on, grant the
-  microphone, disable zoom and pull-to-refresh, auto-reload on error, screen off
-  23:00–07:00. Screen wake comes from the wake word, so no camera is needed.
-- **HA Companion App** alongside it, solely to receive `command_activity` and
-  launch YouTube Music.
+Stock Android throughout — every step below is app configuration. No root, no
+custom ROM, nothing that a factory reset can't undo.
+
+### 1. Kiosk browser
+
+**Webview Kiosk** — F-Droid, `uk.nktnet.webviewkiosk`, AGPL-3.0. Set the start
+URL to your `dash.` host, then:
+
+- **Lock Task Mode (pin)** so the home screen, status bar and other apps are
+  unreachable from the wall.
+- **Set it as the default launcher.** A reboot then lands straight back on the
+  dashboard with no human involved.
+- **Protect its settings** with a password or biometrics. Otherwise the first
+  guest to prod the wall out of curiosity leaves it on a settings screen.
+- **Microphone: only once `[voice] enabled = true`.** With voice off the panel
+  never calls `getUserMedia`, so the grant is dead weight. Screen wake comes
+  from the wake word, so the camera is never needed either way.
+- **Check it reloads after a network drop.** It holds `ACCESS_NETWORK_STATE`
+  for exactly this, and the panel's own reconnect logic covers the rest.
+
+Overnight screen blanking is *not* evidently one of its settings — verify before
+relying on it, and fall back to Android's bedtime mode if it isn't there.
+
+> Earlier versions of these notes recommended **WallPanel**. That was wrong on
+> two counts: it is not on F-Droid (it shipped via Play and GitHub releases),
+> and upstream — `thecowan/wallpanel-android`, which `thanksmister/` forks — has
+> had no commits since October 2021. Use it only if you already have it running.
+
+### 2. Home Assistant Companion
+
+Needed for one thing: receiving `command_activity` to launch YouTube Music. Skip
+it entirely if you don't want the music tile.
+
+F-Droid ships the **minimal** flavour, `io.homeassistant.companion.android.minimal`
+— no Play Services, therefore no FCM, so notifications arrive over Home
+Assistant's local websocket push instead. For a tablet that never leaves the LAN
+that's the better build anyway, but **confirm `command_activity` actually
+arrives** before wiring the music tile to it.
+
+Once the tablet registers, read the real notify service name off HA and put it in
+`[homeassistant] notify_service`. The value in `jarvis.example.toml` is a guess
+at what HA will name your device, and a mismatch makes the music tile silently do
+nothing rather than show an error.
+
+### 3. Vendor settings
+
 - **MagicOS 8 will fight you — this is the step people miss.** Settings →
   Battery → *App launch* → set both apps to Manual and enable all three
   (auto-launch, secondary launch, run in background); disable battery
