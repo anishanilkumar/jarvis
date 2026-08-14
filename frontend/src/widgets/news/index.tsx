@@ -49,10 +49,20 @@ function Card({ slice, expired }: WidgetProps<Data>) {
   const position = index % headlines.length
   const current = headlines[position]
 
+  // Whether the source name is written in a non-Latin script. The shared
+  // .label style uppercases and tracks out to 0.16em, which is right for a
+  // Latin word and wrong for Malayalam — tracking pulls apart the conjuncts a
+  // reader matches on, and case doesn't exist. Rather than permanently opting
+  // this one label out, ask what the string actually is: Latin sources keep
+  // the instrument look every other tile has.
+  const nativeScript = /[^\u0000-\u024F]/.test(data.source || '')
+
   return (
     <div class="stack fill">
       <div class="spread">
-        <span class="label news-source">{data.source || 'headlines'}</span>
+        <span class="label news-source" data-native={nativeScript}>
+          {data.source || 'headlines'}
+        </span>
         {/* Position, not a countdown: it says "there are more" without adding
             a second moving thing to the tile. */}
         <span class="news-ticks">
