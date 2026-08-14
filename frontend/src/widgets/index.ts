@@ -15,7 +15,7 @@ const modules = import.meta.glob<{ default: Widget }>('./*/index.tsx', { eager: 
  * design: departures dominates because it's the only time-critical tile, and
  * the quiet strip sits underneath.
  */
-const ORDER = ['departures', 'clock', 'weather', 'rain', 'meals', 'shopping', 'music']
+const ORDER = ['departures', 'clock', 'weather', 'rain', 'news', 'meals', 'shopping', 'music']
 
 export const widgets: Widget[] = Object.values(modules)
   .map((m) => m.default)

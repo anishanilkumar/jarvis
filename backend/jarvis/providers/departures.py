@@ -98,9 +98,24 @@ class Departures(Provider):
     async def _fetch_board(
         self, conf: dict[str, Any], board: dict[str, Any]
     ) -> dict[str, Any]:
+        keep = board.get("results", conf.get("results", 12))
+
+        # Ask for more than we intend to show whenever a filter is in play.
+        # `results` is applied upstream, before any of our filtering, so a board
+        # that keeps one direction of one line and drops what it can't reach was
+        # asking for twelve departures and rendering one — the rest of the tile
+        # went blank. Over-fetching costs nothing on a 30s refresh and the list
+        # is trimmed back to `keep` below.
+        filtered = bool(
+            board.get("lines")
+            or board.get("directions")
+            or board.get("exclude_directions")
+            or board.get("hide_unreachable")
+        )
+
         params: dict[str, Any] = {
             "duration": board.get("duration_minutes", conf.get("duration_minutes", 60)),
-            "results": board.get("results", conf.get("results", 12)),
+            "results": max(keep * 4, 40) if filtered else keep,
             "remarks": "true",
         }
 
@@ -121,6 +136,16 @@ class Departures(Provider):
 
         now = datetime.now(timezone.utc)
         walk = board.get("walk_minutes", conf.get("walk_minutes", 4))
+
+        # walk_minutes is a comfortable walk, not a hard floor. Treating it as
+        # one hides the departure you'd actually have run for: on a five minute
+        # walk, a tram in four is a brisk version of the same walk, and a board
+        # that has already written it off is wrong in the direction that costs
+        # you the tram. The grace is what you'll stretch by, not a margin of
+        # error in the timetable — keep it small.
+        grace = board.get("grace_minutes", conf.get("grace_minutes", 1))
+        reachable_from = max(0, walk - grace)
+
         only_lines = {line.upper() for line in board.get("lines") or []}
         include = board.get("directions") or []
         exclude = board.get("exclude_directions") or []
@@ -146,7 +171,7 @@ class Departures(Provider):
             # miss, it's a row you can never act on, and three of them fill the
             # board with trains that were never yours. Cancellations survive
             # the cut if they're still far enough out to matter.
-            if hide_unreachable and minutes is not None and minutes < walk:
+            if hide_unreachable and minutes is not None and minutes < reachable_from:
                 continue
 
             departures.append(
@@ -166,7 +191,7 @@ class Departures(Provider):
                     "minutes": minutes,
                     # Dimmed rather than hidden — knowing you just missed one is
                     # itself useful information.
-                    "catchable": (not cancelled) and minutes is not None and minutes >= walk,
+                    "catchable": (not cancelled) and minutes is not None and minutes >= reachable_from,
                     "platform": item.get("platform") or item.get("plannedPlatform"),
                 }
             )
@@ -186,7 +211,10 @@ class Departures(Provider):
             "stop": board.get("stop_name", ""),
             "toward": board.get("toward", ""),
             "walk_minutes": walk,
-            "departures": departures,
+            # The panel dims from this, not from walk_minutes, so both sides agree
+            # on what "too late" means without duplicating the grace rule.
+            "reachable_from": reachable_from,
+            "departures": departures[:keep],
             "warnings": warnings,
             "updated_at": raw.get("realtimeDataUpdatedAt"),
         }

@@ -33,6 +33,31 @@
   font-display: swap;
 }
 
+/* Manjari, from Swathanthra Malayalam Computing. Malayalam is a script Latin
+ * faces have no glyphs for at all — without this the headlines render as rows
+ * of tofu, not as a worse-looking version of themselves.
+ *
+ * The unicode-range is doing real work: it tells the browser these files are
+ * only needed for Malayalam codepoints, so a panel with no headline on screen
+ * never downloads 180KB it can't use. Listing Manjari in --face-data below is
+ * then free — Latin still comes from Archivo, because normal font fallback
+ * takes the first family that actually has the glyph.
+ */
+@font-face {
+  font-family: 'Manjari';
+  src: url('/fonts/Manjari-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0D00-0D7F, U+200C-200D, U+20B9;
+}
+@font-face {
+  font-family: 'Manjari';
+  src: url('/fonts/Manjari-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0D00-0D7F, U+200C-200D, U+20B9;
+}
+
 :root {
   /* ---- Palette --------------------------------------------------------
    * The escape from generic neon-on-black: Iron Man is gold AND arc-blue,
@@ -61,8 +86,12 @@
    * status. The mono is where the instrument feeling actually comes from —
    * engraved, not luminous.
    */
-  --face-data: 'Archivo', system-ui, sans-serif;
+  --face-data: 'Archivo', 'Manjari', system-ui, sans-serif;
   --face-mono: 'Plex Mono', ui-monospace, 'Roboto Mono', monospace;
+  /* Malayalam first where the content is known to be Malayalam, so the browser
+   * never briefly resolves a shared codepoint (digits, punctuation) to Archivo
+   * and reflows the line once Manjari lands. */
+  --face-malayalam: 'Manjari', 'Archivo', system-ui, sans-serif;
 
   /* Scale tuned for 2m viewing, expressed in rem against the root size set
    * below. The numbers are the device pixels they were designed as: --t-hero
@@ -75,6 +104,10 @@
   --t-major: 4.75rem;  /* 76 */
   --t-readout: 3rem;   /* 48 */
   --t-body: 1.625rem;  /* 26 */
+  /* Between body and readout. Headlines are the one place the panel shows a
+   * sentence rather than a number, and at body size a three-line Malayalam
+   * headline reads as small print from across the room. */
+  --t-headline: 2.125rem; /* 34 */
   --t-label: 1.125rem; /* 18 — uppercase, wide tracking */
   --t-min: 1rem;       /* 16 — floor */
 

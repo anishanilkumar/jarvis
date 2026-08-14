@@ -1,0 +1,85 @@
+/* Malayalam sets taller than Latin at the same nominal size — the script
+   carries more vertical detail, and Manjari's generous counters are a large
+   part of why it stays readable at a distance. Sizing this from --t-body would
+   render it visually smaller than the rest of the panel, so it gets its own
+   step and a looser line height. */
+.news-headline {
+  font-family: var(--face-malayalam);
+  font-size: var(--t-headline);
+  line-height: 1.42;
+  color: var(--ink);
+  /* The tile is a fixed height and headlines are not a fixed length. Clamp to
+     three lines rather than letting a long one push the tile open or spill
+     past the bezel. -webkit-box is still the only line-clamp that works in
+     Android WebView, so it does the vertical centring too — via margin, since
+     a box container can't use flex alignment. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: auto 0;
+  animation: headline-in 520ms var(--ease);
+}
+
+/* Past its useful_for the tile dims like every other, but headlines have a
+   second failure mode the others don't: they read as current events. Old news
+   presented as new is its own kind of lie, so an expired tile says so by
+   going quiet rather than merely dim. */
+.news-headline[data-expired='true'] {
+  color: var(--slate);
+}
+
+@keyframes headline-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Engraved index ticks, matching the instrument motif — one per headline, the
+   current one lit. Static: the tile already has one thing that changes. */
+.news-ticks {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.news-tick {
+  width: 0.5rem;
+  height: var(--rule);
+  background: var(--engrave);
+  transition: background 320ms var(--ease);
+}
+
+.news-tick[data-on='true'] {
+  background: var(--arc);
+}
+
+/* Detail view: the whole feed at once, no rotation. If you've walked up and
+   tapped it, you want to scan the list, not wait for it. */
+.news-all {
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.news-headline-small {
+  font-family: var(--face-malayalam);
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: var(--ink);
+  padding-bottom: 0.5rem;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+.news-headline-small:last-child {
+  border-bottom: none;
+}
+
+/* The source name comes from the feed, so it may be in the feed's script. The
+   shared .label style is built for Latin: uppercasing does nothing in a script
+   with no case, and 0.16em of tracking actively harms Malayalam by pulling
+   apart the conjuncts the reader is matching on. Keep the engraved instrument
+   look, drop the two rules that assume an alphabet. */
+.news-source {
+  font-family: var(--face-malayalam);
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
