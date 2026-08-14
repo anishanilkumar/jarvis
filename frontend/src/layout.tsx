@@ -69,9 +69,17 @@ export function Panel() {
     )
   }
 
+  // A widget folder ships in the bundle whether or not this household wants
+  // that tile, so the Pi's registered set decides what goes on the wall. Until
+  // config arrives — and on an older backend that doesn't send the list — show
+  // everything, because a panel that blanks itself while waiting on a config
+  // fetch is worse than one that briefly shows a tile you turned off.
+  const enabled = config.value?.widgets
+  const shown = enabled ? widgets.filter((w) => enabled.includes(w.slug)) : widgets
+
   return (
     <div class="panel">
-      {widgets.map((widget) => {
+      {shown.map((widget) => {
         const slice = panelState[widget.slug] ?? emptySlice()
         // Expiry only bites while we're offline. When the Pi is reachable, its
         // own `stale` flag is the authority and the data is as fresh as it gets.

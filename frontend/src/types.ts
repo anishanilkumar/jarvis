@@ -24,6 +24,9 @@ export interface PanelConfig {
   location: { latitude: number; longitude: number; name?: string }
   stop_name: string
   voice_enabled: boolean
+  /** Slugs the Pi actually serves. Absent on an older backend, in which case
+   *  the panel falls back to rendering every widget in the bundle. */
+  widgets?: string[]
   useful_for: Record<string, number>
 }
 
