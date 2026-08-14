@@ -1,6 +1,90 @@
+# ---------------------------------------------------------------------------
+# Secrets and personal data
+#
+# This repo is public, and the project generates several files that must never
+# reach it. Ordered most-dangerous first.
+# ---------------------------------------------------------------------------
+
+# Your real config: home coordinates, your actual stop, your hostnames.
+# jarvis.example.toml is the committed template; config.py falls back to it.
+jarvis.toml
+jarvis.local.toml
+
+# Voiceprints from `python -m jarvis.voice.enroll`. These are biometric data —
+# an embedding of a household member's voice. Never commit them.
+*.npy
+speakers/
+
+# Enrollment recordings. enroll.py --from-dir reads .wav files, so they tend to
+# get dropped in the working directory.
+*.wav
+*.flac
+*.ogg
+
+# Provider cache. Holds whatever the widgets last fetched — which includes the
+# shopping list and meal plan, i.e. household data.
+cache.json
+state/
+/var/lib/jarvis/
+
+# Credentials in every shape.
+.env
+.env.*
+!.env.example
+*.age
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials*.json
+
+# Downloaded models (Piper voices, speaker embeddings). Large binaries that
+# belong in the state directory, not in git.
+*.onnx
+*.onnx.json
+piper/
+models/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# Node / Vite
+# ---------------------------------------------------------------------------
 node_modules/
 dist/
-__pycache__/
-*.pyc
-.venv/
-jarvis.toml
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local agent/tooling state that isn't part of the project.
+.claude/settings.local.json
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.log
+.cache/
