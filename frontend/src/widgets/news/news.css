@@ -1,3 +1,38 @@
+/* A story is picture, headline, excerpt — laid out side by side, because the
+   news tile is one row tall and stacking them would give each about a line and
+   a half. When the feed carries no picture the text simply takes the width;
+   the frame is not held open for something that isn't coming. */
+.news-story {
+  display: flex;
+  gap: var(--gap);
+  min-height: 0;
+  animation: headline-in 520ms var(--ease);
+}
+
+.news-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Cropped to the tile's shape rather than letter-boxed: publishers file
+   everything from 16:9 stills to portrait phone photos, and a frame that
+   changes proportion every thirty seconds makes the whole panel twitch. The
+   fixed share of the width is what keeps the headline column stable. */
+.news-image {
+  flex: 0 0 30%;
+  align-self: stretch;
+  min-width: 0;
+  object-fit: cover;
+  /* Photographs are the brightest thing on a panel of dark instrument faces.
+     Taking the edge off keeps the tile part of the wall rather than a lit
+     window in it. */
+  filter: saturate(0.85) brightness(0.9);
+}
+
 /* Malayalam sets taller than Latin at the same nominal size — the script
    carries more vertical detail, and Manjari's generous counters are a large
    part of why it stays readable at a distance. Sizing this from --t-body would
@@ -6,27 +41,42 @@
 .news-headline {
   font-family: var(--face-malayalam);
   font-size: var(--t-headline);
-  line-height: 1.42;
+  line-height: 1.28;
   color: var(--ink);
-  /* The tile is a fixed height and headlines are not a fixed length. Clamp to
-     three lines rather than letting a long one push the tile open or spill
-     past the bezel. -webkit-box is still the only line-clamp that works in
-     Android WebView, so it does the vertical centring too — via margin, since
-     a box container can't use flex alignment. */
+  /* Headlines are not a fixed length and the tile is a fixed height. Clamp to
+     two lines, leaving the excerpt its own two — -webkit-box is still the only
+     line-clamp that works in Android WebView. */
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin: auto 0;
-  animation: headline-in 520ms var(--ease);
+}
+
+/* The excerpt is context, not content: it exists so a headline written to be
+   ambiguous ("Calls for Cancellation of Kneecap Concert") resolves without
+   walking over. Set well below the headline so a glance still lands on the
+   headline first. */
+.news-excerpt {
+  font-family: var(--face-malayalam);
+  font-size: var(--t-body);
+  line-height: 1.32;
+  color: var(--ink-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Past its useful_for the tile dims like every other, but headlines have a
    second failure mode the others don't: they read as current events. Old news
    presented as new is its own kind of lie, so an expired tile says so by
-   going quiet rather than merely dim. */
-.news-headline[data-expired='true'] {
+   going quiet rather than merely dim — the photo included, since a colour
+   photograph is the last thing on the tile that still looks live. */
+.news-story[data-expired='true'] .news-headline {
   color: var(--slate);
+}
+.news-story[data-expired='true'] .news-image {
+  filter: grayscale(1) brightness(0.7);
 }
 
 @keyframes headline-in {
@@ -61,16 +111,60 @@
   overflow: hidden;
 }
 
+.news-item {
+  display: flex;
+  gap: var(--gap);
+  align-items: flex-start;
+  min-height: 0;
+  padding-bottom: 0.625rem;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+.news-item:last-child {
+  border-bottom: none;
+}
+
+/* Small enough to be an index mark rather than an illustration — at this size
+   it's there to make the row you're looking for findable by its photo, which
+   is faster than reading eight headlines.
+
+   min-width: 0 is load-bearing on both images in this file. A flex item's
+   default min-width is auto, and for a replaced element that resolves to the
+   picture's own intrinsic width — so a 1200px press photo ignores the width
+   you gave it, shoves the headline column off the tile and overlaps the row
+   below. It looks like the flex-basis is being ignored; it isn't. */
+.news-thumb {
+  flex: 0 0 9rem;
+  min-width: 0;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  filter: saturate(0.85) brightness(0.9);
+}
+
+/* Clamped for the same reason the rows are evenly sized: eight stories have to
+   fit the screen without the last one being sliced in half by the bezel, and a
+   headline is allowed to be long. */
 .news-headline-small {
   font-family: var(--face-malayalam);
   font-size: var(--t-body);
-  line-height: 1.4;
+  line-height: 1.32;
   color: var(--ink);
-  padding-bottom: 0.5rem;
-  border-bottom: var(--rule) solid var(--engrave);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.news-headline-small:last-child {
-  border-bottom: none;
+
+.news-excerpt-small {
+  font-family: var(--face-malayalam);
+  font-size: var(--t-label);
+  line-height: 1.35;
+  color: var(--ink-dim);
+  letter-spacing: 0;
+  text-transform: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* The source name comes from the feed, so it may be in the feed's script. The
