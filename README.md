@@ -279,8 +279,22 @@ would need a second branch.
 
 ## Notes from actually deploying it
 
-Seven things that only showed up on real hardware, kept here because they cost
+Eight things that only showed up on real hardware, kept here because they cost
 hours and would cost anyone else the same.
+
+**A silence timeout counted in ticks is a timeout on the speaker.** Voice
+truncated every command at about two seconds, and it presented as the recogniser
+failing on an Indian accent — the transcripts were "what is the", "How hard",
+and once just the wake word itself. Neither the model nor the accent was
+involved. The server polled the socket with an 80ms timeout and treated each
+expiry as a frame of silence, but the tablet's `ScriptProcessor(2048)` at 16kHz
+sends a chunk only every 128ms, so *every ordinary gap between chunks* scored as
+silence — and nothing reset the counter when audio arrived. It reached its limit
+mid-sentence no matter how continuously you spoke. Silence is now elapsed time
+since audio last arrived, which is both correct and immune to the buffer size
+changing. The general lesson is worth more than the fix: when a pipeline ends in
+a model, a plumbing bug upstream will be blamed on the model, and "it does not
+understand me" is a claim to verify against the raw input before believing.
 
 **whisper pads every clip to thirty seconds.** The encoder runs over that whole
 window regardless of how much of it holds speech, so "next tram" costs exactly
