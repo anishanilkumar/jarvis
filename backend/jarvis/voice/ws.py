@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 import numpy as np
@@ -49,18 +50,36 @@ class Session:
         self.command: list[np.ndarray] = []
         self.capturing = False
         self.captured_samples = 0
-        self.silence_frames = 0
+        self.last_audio = 0.0
 
         voice = self.cfg.section("voice")
         self.max_samples = int(voice.get("max_command_seconds", 8)) * SAMPLE_RATE
-        # Silence is measured in 80ms frames; the tablet stops sending during
-        # true silence, so this mostly bounds the tail after speech ends.
-        self.silence_limit = max(1, int(voice.get("silence_timeout_ms", 1200) / 80))
+
+        # Silence is time since audio last arrived, in seconds — NOT a count of
+        # ticks in the receive loop, which is what this was and which truncated
+        # every single command at about two seconds.
+        #
+        # The trap: the loop polls with an 80ms timeout, but the tablet's
+        # ScriptProcessor buffers 2048 samples at 16kHz and therefore sends a
+        # chunk only every 128ms. Every ordinary gap *between chunks* scored as
+        # silence, the counter only ever went up, and nothing reset it while
+        # audio was flowing — so the count reached its limit mid-sentence no
+        # matter how continuously you spoke. It read like the recogniser
+        # mishearing an accent; it was the recogniser being handed the first
+        # two seconds and nothing else.
+        #
+        # Wall-clock is also the honest unit here, and it stays correct if the
+        # tablet's buffer size or the poll interval ever changes.
+        self.silence_timeout = float(voice.get("silence_timeout_ms", 1200)) / 1000
 
     async def send(self, **message: Any) -> None:
         await self.socket.send_text(json.dumps(message))
 
     async def feed(self, pcm: bytes) -> None:
+        # Audio arrived, so whatever silence had accumulated is over. This line
+        # is the fix: without it the clock only ever runs forward and the
+        # command is cut off while the speaker is still talking.
+        self.last_audio = time.monotonic()
         self.frames = np.concatenate([self.frames, np.frombuffer(pcm, dtype=np.int16)])
 
         while len(self.frames) >= FRAME_SAMPLES:
@@ -80,15 +99,14 @@ class Session:
         self.capturing = True
         self.command = []
         self.captured_samples = 0
-        self.silence_frames = 0
+        self.last_audio = time.monotonic()
         await self.send(type="wake")
 
     async def on_gap(self) -> None:
-        """Called when the tablet stops sending — i.e. the speaker paused."""
+        """No audio this tick. End the command only if the quiet has lasted."""
         if not self.capturing:
             return
-        self.silence_frames += 1
-        if self.silence_frames >= self.silence_limit:
+        if time.monotonic() - self.last_audio >= self.silence_timeout:
             await self.finish()
 
     async def finish(self) -> None:
