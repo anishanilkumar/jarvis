@@ -14,9 +14,11 @@ voice = [
     "openwakeword>=0.6",
     "onnxruntime>=1.17",
     "numpy>=1.26",
-    "google-genai>=0.3",
     "websockets>=12",
 ]
+# Speech recognition and speech synthesis are binaries, not Python packages:
+# whisper.cpp (`whisper-cli`) and Piper (`piper`) both have to be on PATH. The
+# models they load live in the state directory — see the README.
 
 [build-system]
 requires = ["setuptools>=68"]

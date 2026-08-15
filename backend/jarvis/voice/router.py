@@ -56,7 +56,13 @@ class Router:
         if fallback:
             return Speech(text=fallback)
 
-        return Speech(text="I didn't catch that.")
+        # Heard clearly, understood by nobody — which is a different failure
+        # from not hearing, and has to sound different. "I didn't catch that"
+        # invites you to repeat yourself, and repeating yourself will not help:
+        # no widget claims this and there is no longer a general-knowledge tier
+        # behind them to catch it. Say so, so the next thing you try is
+        # different words rather than the same words louder.
+        return Speech(text="I don't know how to help with that.")
 
     async def _ask_home_assistant(self, transcript: str) -> Speech:
         conf = self.cfg.section("homeassistant")
