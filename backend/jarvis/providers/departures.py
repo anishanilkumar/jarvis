@@ -9,11 +9,18 @@ A *board* is one stop filtered to one direction of travel. A wall display that
 shows both directions of a line is showing you, at best, half useful rows: you
 leave the house heading one way. Boards are configured in jarvis.toml and
 fetched concurrently, so adding one costs no wall-clock time.
+
+Every departure the stop reports in the configured window is sent, including
+the ones already out of reach on foot. What to *show* is the panel's decision
+and it changes minute by minute as the walk clock runs down — a board trimmed
+here would be trimmed as of the last fetch, and the expanded view could never
+show the full timetable at all.
 """
 
 from __future__ import annotations
 
 import asyncio
+import html
 from datetime import datetime, timezone
 from typing import Any
 
@@ -102,15 +109,14 @@ class Departures(Provider):
 
         # Ask for more than we intend to show whenever a filter is in play.
         # `results` is applied upstream, before any of our filtering, so a board
-        # that keeps one direction of one line and drops what it can't reach was
-        # asking for twelve departures and rendering one — the rest of the tile
-        # went blank. Over-fetching costs nothing on a 30s refresh and the list
-        # is trimmed back to `keep` below.
+        # that keeps one direction of one line was asking for twelve departures
+        # and rendering one — the rest of the tile went blank. Over-fetching
+        # costs nothing on a 30s refresh and the list is trimmed back to `keep`
+        # below.
         filtered = bool(
             board.get("lines")
             or board.get("directions")
             or board.get("exclude_directions")
-            or board.get("hide_unreachable")
         )
 
         params: dict[str, Any] = {
@@ -135,21 +141,15 @@ class Departures(Provider):
         raw = response.json()
 
         now = datetime.now(timezone.utc)
+        # The one threshold: leave now and you are on the platform in this many
+        # minutes. Anything sooner is gone. There is no grace window — a margin
+        # that quietly redefines "too late" makes the board disagree with the
+        # walk it prints in its own header.
         walk = board.get("walk_minutes", conf.get("walk_minutes", 4))
-
-        # walk_minutes is a comfortable walk, not a hard floor. Treating it as
-        # one hides the departure you'd actually have run for: on a five minute
-        # walk, a tram in four is a brisk version of the same walk, and a board
-        # that has already written it off is wrong in the direction that costs
-        # you the tram. The grace is what you'll stretch by, not a margin of
-        # error in the timetable — keep it small.
-        grace = board.get("grace_minutes", conf.get("grace_minutes", 1))
-        reachable_from = max(0, walk - grace)
 
         only_lines = {line.upper() for line in board.get("lines") or []}
         include = board.get("directions") or []
         exclude = board.get("exclude_directions") or []
-        hide_unreachable = bool(board.get("hide_unreachable", False))
 
         departures: list[dict[str, Any]] = []
         for item in raw.get("departures", []):
@@ -163,16 +163,6 @@ class Departures(Provider):
             planned = item.get("plannedWhen")
             cancelled = bool(item.get("cancelled"))
             minutes = _minutes_until(when or planned, now)
-
-            # At the home stop, a departure you just missed is worth seeing —
-            # it tells you the next one is the one to plan around, which is why
-            # those are dimmed rather than dropped. Thirteen minutes away that
-            # reasoning inverts: a train leaving in one minute isn't a near
-            # miss, it's a row you can never act on, and three of them fill the
-            # board with trains that were never yours. Cancellations survive
-            # the cut if they're still far enough out to matter.
-            if hide_unreachable and minutes is not None and minutes < reachable_from:
-                continue
 
             departures.append(
                 {
@@ -189,20 +179,28 @@ class Departures(Provider):
                     "delay_minutes": round((item.get("delay") or 0) / 60),
                     "cancelled": cancelled,
                     "minutes": minutes,
-                    # Dimmed rather than hidden — knowing you just missed one is
-                    # itself useful information.
-                    "catchable": (not cancelled) and minutes is not None and minutes >= reachable_from,
+                    # Only a hint for the voice answer. The panel recomputes it
+                    # every second from `when`, because this one was true when
+                    # the Pi fetched and stops being true while the tile sits
+                    # on the wall.
+                    "catchable": (not cancelled) and minutes is not None and minutes >= walk,
                     "platform": item.get("platform") or item.get("plannedPlatform"),
                 }
             )
 
         # Warnings only. Every stop carries permanent "hint" remarks (lift out
         # of service, ticket info) that would drown the real disruptions.
+        #
+        # Unescaped because BVG's remark text arrives HTML-escaped and lands in
+        # a text node, so the panel was showing literal "&#60; &#62;" mid
+        # sentence where the notice meant an arrow.
         warnings: list[str] = []
         for item in raw.get("departures", []):
             for remark in item.get("remarks") or []:
                 if remark.get("type") == "warning":
-                    text = (remark.get("text") or remark.get("summary") or "").strip()
+                    text = html.unescape(
+                        remark.get("text") or remark.get("summary") or ""
+                    ).strip()
                     if text and text not in warnings:
                         warnings.append(text)
 
@@ -211,9 +209,11 @@ class Departures(Provider):
             "stop": board.get("stop_name", ""),
             "toward": board.get("toward", ""),
             "walk_minutes": walk,
-            # The panel dims from this, not from walk_minutes, so both sides agree
-            # on what "too late" means without duplicating the grace rule.
-            "reachable_from": reachable_from,
+            # How many catchable departures this board is worth on the ambient
+            # tile. A display decision, but it belongs to the board rather than
+            # the widget: the tram every four minutes and the U8 you have to
+            # walk thirteen minutes for do not deserve the same number of rows.
+            "rows": board.get("rows", conf.get("rows", 3)),
             "departures": departures[:keep],
             "warnings": warnings,
             "updated_at": raw.get("realtimeDataUpdatedAt"),

@@ -1,6 +1,6 @@
 /* Boards stack in journey order: the stop you walk to, then the one you change
-   at. They split the tile's height evenly rather than the first one taking what
-   it likes — a connection you can't see is a connection you'll miss. */
+   at. Neither one takes what it likes — a connection you can't see is a
+   connection you'll miss. */
 .dep-boards {
   display: flex;
   flex-direction: column;
@@ -9,10 +9,14 @@
   overflow: hidden;
 }
 
+/* flex-grow is set inline, per board, from the number of rows it's showing:
+   four tram departures and two U-Bahn ones in an even split would render the
+   tram rows at half the size, and row height is what makes a board readable
+   from the hallway. Proportional height means one row is one row everywhere. */
 .dep-board {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   gap: 0.375rem;
 }
@@ -57,9 +61,10 @@
   border-bottom: none;
 }
 
-/* Departures you can no longer physically reach are dimmed, not hidden.
-   Knowing you just missed one is itself useful — it tells you the next is the
-   one to plan around. */
+/* The one you've missed. Dimmed, not hidden, and always at the top of the
+   board: it's the row that tells you whether the eleven minute wait is the
+   timetable or your own fault. Dim enough that the eye lands on the first row
+   below it — the first one you can actually make. */
 .dep[data-catchable='false'] {
   opacity: 0.34;
 }
@@ -170,6 +175,28 @@
   overflow: hidden;
 }
 
-.dep-list-full .dep {
-  padding: 0.625rem 0;
+/* Tapped: the whole timetable, unfiltered — up to a dozen rows per board where
+   the tile shows a handful. The countdown gives up the size it earns on the
+   wall, and it should: you are standing in front of the panel reading a list,
+   not glancing at one number from the hallway, and a row that doesn't fit is a
+   row that isn't there.
+
+   Written to match the specificity of the two-board rules above rather than
+   beat them with !important, so it's the source order that decides. */
+.dep-boards.dep-boards-full .dep-min,
+.dep-boards.dep-boards-full .dep-when.frozen {
+  font-size: var(--t-headline);
+}
+.dep-boards.dep-boards-full .dep-line {
+  font-size: var(--t-body);
+}
+.dep-boards.dep-boards-full .dep {
+  grid-template-columns: 4.5rem 1fr auto auto;
+  padding: 0.125rem 0;
+}
+.dep-boards.dep-boards-full .dep-when {
+  min-width: 5.5rem;
+}
+.dep-boards.dep-boards-full .dep-list {
+  gap: 0;
 }
