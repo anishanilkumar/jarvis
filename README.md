@@ -55,8 +55,11 @@ stale_after = 900   # Pi has data but it's old -> tile marked stale
 useful_for = 86400  # tablet lost the Pi -> show cached data this long, then go dark
 ```
 
-Declaring `intents` is all that voice needs: the list is handed to the STT model
-as its candidate labels, so the new widget is speakable immediately.
+Declaring `intents` is all that voice needs. Those example phrasings *are* the
+routing table: `backend/jarvis/voice/intent.py` weights each word by how few
+providers use it, so a new widget is speakable the moment it declares how people
+would ask for it. Give it the words someone would actually say, and prefer ones
+no other widget would claim.
 
 ## Two ideas the whole thing rests on
 
@@ -112,23 +115,65 @@ git clone git@github.com:<you>/jarvis.git ~/jarvis
 cp jarvis.example.toml jarvis.toml   # then edit: stop id, coordinates, hosts
 
 # Secrets. Placeholders are committed; put the real keys in:
-#   GROCY_API_KEY=...  GEMINI_API_KEY=...  HA_TOKEN=...
+#   GROCY_API_KEY=...  HA_TOKEN=...
 # On NixOS, agenix. Anywhere else, a root-owned EnvironmentFile.
+# Voice needs no key: speech recognition runs on this machine.
 
-# Voice venv. openWakeWord and google-genai aren't in nixpkgs, so the voice
-# service uses a venv while the dashboard gets a declarative interpreter.
+# Voice interpreter. On NixOS both services are declarative and there is
+# nothing to do here — nix/jarvis-dashboard.nix builds it, including the one
+# package missing from nixpkgs (nix/pkgs/openwakeword.nix). Do NOT reach for a
+# venv on NixOS: without programs.nix-ld there is no dynamic loader at /lib, so
+# pip's manylinux wheels for numpy and onnxruntime cannot execute at all.
+# Anywhere else, the venv is the normal path:
 python -m venv ~/.venv/jarvis-voice
 ~/.venv/jarvis-voice/bin/pip install -e ~/jarvis/backend[voice]
 
+# Wake word models. openWakeWord fetches these itself on first use, into its
+# own package directory — which is read-only when the interpreter comes from
+# the nix store, and which fails at the first frame of audio rather than at
+# startup. Fetch them by hand and jarvis passes them in by path.
+mkdir -p /var/lib/jarvis/openwakeword && cd /var/lib/jarvis/openwakeword
+oww=https://github.com/dscripka/openWakeWord/releases/download/v0.5.1
+curl -LO $oww/melspectrogram.onnx
+curl -LO $oww/embedding_model.onnx
+curl -LO $oww/hey_jarvis_v0.1.onnx      # or your own model, named hey_jarvis*
+
 # Piper voice model for TTS
 mkdir -p /var/lib/jarvis/piper && cd /var/lib/jarvis/piper
-curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx
-curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json
+voice=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium
+curl -LO $voice/en_GB-alba-medium.onnx
+curl -LO $voice/en_GB-alba-medium.onnx.json
 
-# Speaker ID model (WeSpeaker/ECAPA ONNX export), then enroll a voice
-mkdir -p /var/lib/jarvis/models   # place speaker-embedding.onnx here
-cd ~/jarvis/backend && python -m jarvis.voice.enroll <name>
+# whisper.cpp model for STT. tiny.en is the default: measured on a Pi 4 it
+# answers a spoken command in 2.9s against base.en's 6.2s, and the errors it
+# does make are the kind the intent matcher survives. Fetch base.en instead —
+# and set model in jarvis.toml — if it mishears you too often.
+mkdir -p /var/lib/jarvis/whisper && cd /var/lib/jarvis/whisper
+curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 ```
+
+Then flip `[voice] enabled = true` in `jarvis.toml` and deploy. The panel only
+asks for the microphone once the Pi reports voice as on, so the tablet's
+permission prompt appears on the first reload after that — grant it there.
+
+Check it came up before going to the wall:
+
+```bash
+curl -s localhost:8141/health
+# wake_word_available, stt_available and tts_available must all be true. Any one
+# false is a model file that isn't where the service is looking, and none of the
+# three is loud at runtime: a false wake word never fires, a false STT hears
+# nothing, and a false TTS answers in text with silence.
+```
+
+**Speaker ID is not wired up yet**, and the panel works without it — an
+unrecognised voice is served, just not by name. Two things are missing rather
+than one: `/var/lib/jarvis/models/speaker-embedding.onnx`, and a mel front-end
+for it. Every ONNX embedding export in the wild (sherpa-onnx's WeSpeaker
+builds, pyannote's) takes fbank features, while `SpeakerID.embed()` feeds a raw
+waveform. Note also that `jarvis.voice.enroll` records through `arecord` on the
+Pi, which is the wrong machine — the microphone is on the tablet — so
+enrolment goes through its `--from-dir` flag with WAVs recorded elsewhere.
 
 ### DNS
 
@@ -198,32 +243,76 @@ nothing rather than show an error.
 - **Battery:** holding the cell at 100% forever degrades and eventually swells
   it. Put the charger on a timer, and mount it so the back still opens.
 
-## The one proprietary dependency
+## No proprietary dependencies
 
-Everything doing real work is open source: NixOS, Caddy, Home Assistant,
-openWakeWord, ONNX Runtime, Piper, FastAPI, Preact, SQLite, Grocy, Jellyfin.
+Everything here is open source: NixOS, Caddy, Home Assistant, openWakeWord, ONNX
+Runtime, whisper.cpp, Piper, FastAPI, Preact, SQLite, Grocy, Jellyfin.
 Open-Meteo's server is AGPL on open DWD/ECMWF data, and `v6.bvg.transport.rest`
 is derhuerst's ISC-licensed `hafas-rest-api`.
 
-The exception is **Gemini**, which does transcription, intent routing and the
-general-knowledge fallback in a single call. It's there because it is the only
-free option that handles the second language this household speaks. Local
-whisper is fine at English and much weaker outside it, and the model size that
-would fix that won't run at usable speed on a Pi 4.
+**Voice runs entirely on the Pi.** openWakeWord listens, whisper.cpp transcribes,
+the intent is matched locally against the providers' own declared phrasings, and
+Piper speaks the answer. No key, no quota, no account, and nothing said in this
+house is ever transmitted anywhere.
 
-It costs nothing in money and something in data: the free tier's terms let
-Google use the audio to improve their models, including human review, and a
-consumer Gemini subscription does not change that — API billing is separate. The hybrid boundary keeps it
-to deliberate post-wake-word commands — nothing leaves the house until "hey
-jarvis" matches, and silence never leaves the tablet at all.
+That was not the original design. Voice used to route through Gemini, which did
+transcription, intent and a general-knowledge fallback in one call, chosen
+because it was the only free option that handled a second language. Reality
+settled it: in a single evening of testing, the pinned model was retired for new
+API keys and returned 404, its replacement returned 503 under load, a third
+silently translated English into German, and the best case that did work took
+about nine seconds to answer. A wall panel cannot route around any of those, and
+each one arrives as "voice is broken" with nothing to point at.
 
-To remove it, set `provider = "whisper"` under `[voice.stt]` in `jarvis.toml`
-and implement that branch in `backend/jarvis/voice/stt.py`. Nothing else changes.
+What that costs, plainly:
+
+- **English only.** The `.en` models are better at English for their size
+  because they gave up every other language. A multilingual whisper build is a
+  config change and a slower, weaker transcription.
+- **No general-knowledge answers.** The cloud call used to catch the long tail —
+  "how tall is the Eiffel Tower". Nothing local can, so an utterance matching no
+  widget is told so rather than guessed at.
+
+Both were acceptable trades here. Neither is irreversible: `[voice.stt]` still
+has a `provider` key, and `backend/jarvis/voice/stt.py` is the only file that
+would need a second branch.
 
 ## Notes from actually deploying it
 
-Four things that only showed up on real hardware, kept here because they cost
+Seven things that only showed up on real hardware, kept here because they cost
 hours and would cost anyone else the same.
+
+**whisper pads every clip to thirty seconds.** The encoder runs over that whole
+window regardless of how much of it holds speech, so "next tram" costs exactly
+what half a minute of speech costs: 9s on tiny.en and 27s on base.en, for a
+one-second command, on a Pi 4. That alone makes local transcription look
+impossible on this hardware, and it is the reason to reach for `--audio-ctx`,
+which trims the window — the same 9s drops to 2.9s. Two things surprised me:
+the flag is **not** monotonic (384 was *slower* than 512, because too little
+context leaves the decoder rambling), and the transcription errors that remain
+are ones the intent matcher shrugs off. tiny.en heard "we'll let rain this
+evening" and base.en heard "one is the next tram" — both still route correctly,
+because the word that carries the routing ("rain", "tram") is the word that
+survives.
+
+**A model can be retired out from under a working config.** `gemini-2.5-flash`
+was the pinned default and it answers 404 for keys issued after its cutoff —
+*"no longer available to new users"* — so voice failed on the very first thing
+said to it, on a config that had never been wrong. Worse, the model still
+appears in `ListModels`; only `generateContent` refuses. Measured from the Pi,
+three calls each on a free key: `3.5-flash` worked but transcribed English into
+German, `3.7-flash` returned 503 "high demand" on three of four calls, and
+`gemini-flash-latest` — the obvious hedge against retirement — was the least
+available of all. Pin a model, and treat "voice stopped working" as a question
+about the model before it is a question about the microphone.
+
+**A systemd service does not inherit your shell's PATH.** Piper was installed,
+`piper` ran fine over SSH, and the unit still could not find it — services get
+systemd's own minimal PATH, not `/run/current-system/sw/bin`. `shutil.which`
+returned None, `tts.py` logged one warning and answered in text forever after.
+The failure is quiet by design (a missing voice should degrade, not crash), and
+quiet is exactly what makes it expensive. Hence `path = [ pkgs.piper-tts ]` on
+the unit, and `tts_available` in `/health` so the answer is one curl away.
 
 **EventSource does not always reconnect.** When the server answers non-2xx —
 what a dead backend behind a reverse proxy produces — the spec says the browser

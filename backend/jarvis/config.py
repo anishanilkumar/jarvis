@@ -35,8 +35,8 @@ class Config:
 
         # Secrets. Absent is allowed — the provider that needs one degrades to a
         # clear error on its own tile rather than taking the whole panel down.
+        # Voice needs no key at all: speech recognition runs on this machine.
         self.grocy_api_key = os.environ.get("GROCY_API_KEY", "")
-        self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
         self.ha_token = os.environ.get("HA_TOKEN", "")
 
         self.state_dir = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/jarvis"))

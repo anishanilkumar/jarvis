@@ -103,14 +103,26 @@ class Session:
             return
 
         speaker = self.deps["speakers"].identify(audio)
-        understanding = await self.deps["stt"].understand(
-            audio.tobytes(),
-            self.deps["router"].catalogue(),
-            self.cfg.section("household").get("members", []),
-        )
+
+        # The STT provider is the one part of this pipeline that lives on
+        # someone else's computer, and it fails in ways nothing here controls:
+        # a model retired out from under the key, a 503 under load, a quota
+        # exhausted mid-sentence. Uncaught, that exception unwinds the receive
+        # loop and takes the socket down — the panel reconnects a few seconds
+        # later and the person at the wall just never gets an answer, which
+        # reads exactly like the wake word having missed them.
+        try:
+            understanding = await self.deps["stt"].understand(
+                audio.tobytes(),
+                self.deps["router"].catalogue(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("speech recognition failed")
+            await self.reply(f"Speech recognition failed: {type(exc).__name__}.")
+            return
 
         if understanding is None or not understanding.transcript:
-            await self.send(type="reply", text="I didn't catch that.")
+            await self.reply("I didn't catch that.")
             return
 
         await self.send(type="transcript", text=understanding.transcript)
@@ -127,9 +139,20 @@ class Session:
             understanding.answer,
         )
 
-        await self.send(type="reply", text=reply.text, focus=reply.focus)
+        await self.reply(reply.text, focus=reply.focus)
 
-        if audio_out := await self.deps["tts"].speak(reply.text):
+    async def reply(self, text: str, focus: str | None = None) -> None:
+        """Say it, and show it. Every answer goes out both ways.
+
+        The failure replies used to be text-only, which is the wrong way round:
+        you are three metres from the panel and were talking to it, so a reply
+        you have to walk over and read is a reply you never receive. Silence
+        after the wake chime is indistinguishable from not having been heard,
+        and "it didn't hear me" is the one wrong conclusion to leave someone
+        with when the truth is that the recogniser is down.
+        """
+        await self.send(type="reply", text=text, focus=focus)
+        if audio_out := await self.deps["tts"].speak(text):
             await self.socket.send_bytes(audio_out)
 
 
@@ -157,6 +180,14 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "wake_word": deps["wake"].name,
+        # All three are false in exactly one interesting way — a model file that
+        # was never fetched — and all three fail silently at runtime rather than
+        # loudly at startup. Worth three lines here to make that visible: the
+        # whole pipeline now runs on model files sitting in the state directory,
+        # and "voice does nothing" should be one curl to diagnose.
+        "wake_word_available": deps["wake"].available,
+        "stt_available": deps["stt"].available,
+        "stt_model": deps["stt"].name,
         "tts_available": deps["tts"].available,
         "enrolled_speakers": sorted(deps["speakers"]._prints),
         "intents": sorted(deps["router"].catalogue()),

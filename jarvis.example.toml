@@ -122,14 +122,16 @@ api_base = "https://v6.bvg.transport.rest"
 # Defaults for every board; each may override them.
 duration_minutes = 60
 results = 12
-# Minutes from the front door to the platform. Departures you can no longer
-# catch are dimmed rather than hidden — knowing you just missed one is useful.
+# Minutes from the front door to the platform. This is the whole rule: anything
+# leaving sooner than this is gone, and the panel says so rather than listing it
+# as though you had a chance. Measure it once and walk it; a guess here makes
+# every row on the tile a guess.
 walk_minutes = 4
-# How much you'll stretch that by. walk_minutes is a comfortable walk, not a
-# hard floor: with a five minute walk, a tram in four is a brisk version of the
-# same walk, and writing it off is wrong in the direction that costs you the
-# tram. This is what you'll hustle, not slack in the timetable — keep it small.
-grace_minutes = 1
+# How many departures you can still catch each board shows on the ambient tile.
+# The board also shows the one you've just missed, above them and greyed, so a
+# board with rows = 3 is four lines tall. Tap the tile for the full timetable,
+# unfiltered.
+rows = 3
 
 # stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
 [[departures.boards]]
@@ -166,19 +168,27 @@ lines = []
 # # Door to THIS platform, not to the first stop — a connection board is only
 # # honest if it accounts for the time it takes to reach it.
 # walk_minutes = 10
-# # Drop what you couldn't reach anyway. At your own stop a just-missed service
-# # is worth seeing — it tells you which one to plan around, which is why those
-# # are dimmed rather than hidden. Far enough away that inverts: those rows are
-# # departures that were never yours, and they crowd out the ones that are.
-# hide_unreachable = true
+# # Fewer rows than the home stop. A service you have to cross the district for
+# # is one you plan around, not one you dash for, so two of them is the useful
+# # answer and the rest is timetable.
+# rows = 2
 
 # ---------------------------------------------------------------------------
-# Headlines. Any RSS feed; one headline at a time with a crossfade, never a
+# Headlines. Any RSS feed; one story at a time with a crossfade, never a
 # scrolling ticker — moving text has to be chased to be read, which is the
 # wrong ask for a display you glance at from across a room.
 #
+# Each story shows its headline, a one-line excerpt and the feed's picture.
+# Both the excerpt and the picture are best-effort: feeds disagree about where
+# they live and some carry neither, in which case the tile is a headline and
+# lays itself out accordingly. Nothing to configure for that.
+#
 # A non-Latin feed needs a font that has the script. The bundled Manjari covers
 # Malayalam; see frontend/public/fonts/README.md for adding another.
+#
+# Note the pictures are loaded from the publisher, so the panel needs internet
+# for them — not just the Pi. On a tablet with no route out, the tile falls
+# back to text.
 # ---------------------------------------------------------------------------
 [news]
 feed_url = "https://feeds.bbci.co.uk/news/world/rss.xml"
@@ -189,6 +199,10 @@ source_name = "BBC World"
 # How many to keep, and how long each holds before the fade.
 headlines = 8
 rotate_seconds = 30
+# Excerpt length before it's trimmed at a word. The tile clamps to two lines
+# anyway; this is what stops a feed whose <description> is the entire article
+# from shipping the entire article.
+excerpt_chars = 220
 
 # ---------------------------------------------------------------------------
 # Weather — Open-Meteo, no API key.
@@ -229,10 +243,10 @@ music_intent_action = "android.media.action.MEDIA_PLAY_FROM_SEARCH"
 # ---------------------------------------------------------------------------
 [voice]
 # Off until the voice service is actually installed on the Pi: it needs the
-# venv (openwakeword + google-genai), a Piper voice model, a speaker-embedding
-# ONNX model, and GEMINI_API_KEY in jarvis-env.age. With this false the panel
-# doesn't prompt for the microphone or retry a WebSocket that nothing is
-# serving. Flip to true once the README's one-time setup is done.
+# openWakeWord and Piper models under /var/lib/jarvis, and GEMINI_API_KEY in
+# jarvis-env.age. With this false the panel doesn't prompt for the microphone
+# or retry a WebSocket that nothing is serving. Flip to true once the README's
+# one-time setup is done, and check `curl localhost:8141/health` agrees.
 enabled = false
 wake_word = "hey_jarvis"
 # Raise toward 0.7 if it triggers off the TV; lower toward 0.4 if it misses you.
@@ -250,11 +264,20 @@ speaker_match_threshold = 0.65
 tts_voice = "en_GB-alba-medium"
 
 [voice.stt]
-# The one proprietary dependency. Swap provider to "whisper" to go fully local
-# and offline, at the cost of much weaker Malayalam.
-provider = "gemini"
-model = "gemini-2.5-flash"
-# Free tier ceiling is 1500/day and 15/min. A household lands near 50/day; if
-# this budget is ever hit, something is retrying in a loop.
-daily_budget = 400
-languages = ["en", "ml"]
+# Speech recognition runs on the Pi via whisper.cpp. No key, no quota, no
+# network, and nothing said in the house leaves it.
+provider = "whisper"
+# Loaded from /var/lib/jarvis/whisper/ggml-<model>.bin. tiny.en is roughly twice
+# the speed of base.en and noticeably worse at proper nouns; small.en is more
+# than a Pi 4 will answer with in reasonable time. English-only builds — they
+# are better at English for their size because they gave up everything else.
+# Measured on a Pi 4 over five spoken commands, with audio_context below:
+#   tiny.en 2.9s, base.en 6.2s, small.en far too slow to talk to.
+model = "tiny.en"
+# Of four cores, on a box that also serves the wall, Jellyfin and Samba.
+threads = 3
+# whisper pads every clip to 30s and encodes the whole window, so a two-word
+# command costs what half a minute of speech costs. Trimming that window is what
+# makes this usable on a Pi. Measure before lowering it — 384 was SLOWER than
+# 512, because too little context leaves the decoder rambling. 0 = full window.
+audio_context = 512

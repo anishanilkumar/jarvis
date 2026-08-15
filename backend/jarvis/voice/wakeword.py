@@ -5,6 +5,13 @@ openWakeWord ships a pretrained "hey jarvis" model, which is exactly the phrase
 this system wants, and it is cheap enough that a Pi 3 runs 15-20 models at once.
 On a Pi 4 already busy with Jellyfin it is not a meaningful load.
 
+The three ONNX files it needs are fetched by hand into the state directory and
+passed in by path. Left to itself openWakeWord downloads them on first use into
+its own package directory, which is read-only when the interpreter comes from
+the nix store — the download fails, and it fails at the first frame of audio
+rather than at startup. Explicit paths also mean a missing model is a log line
+and a deaf panel, not a stack trace per 80ms frame.
+
 Speaker ID runs on ONNX Runtime rather than PyTorch. openWakeWord already pulls
 onnxruntime in, and installing torch on aarch64 for one embedding model would
 be absurd.
@@ -30,18 +37,62 @@ class WakeWord:
         voice = cfg.section("voice")
         self.name = voice.get("wake_word", "hey_jarvis")
         self.threshold = float(voice.get("wake_threshold", 0.55))
+        self.dir = cfg.state_dir / "openwakeword"
         self._model: Any = None
+        self._tried = False
 
-    def _lazy_model(self) -> Any:
-        if self._model is None:
+    def _paths(self) -> tuple[Path, Path, Path] | None:
+        """The wake-word model and the two shared feature models, or None.
+
+        Globbed rather than named, because the pretrained file carries a version
+        in its name (`hey_jarvis_v0.1.onnx`) and a model you train yourself
+        won't.
+        """
+        melspec = self.dir / "melspectrogram.onnx"
+        embedding = self.dir / "embedding_model.onnx"
+        found = sorted(self.dir.glob(f"{self.name}*.onnx"))
+        if not found or not melspec.exists() or not embedding.exists():
+            return None
+        return found[0], melspec, embedding
+
+    @property
+    def available(self) -> bool:
+        return self._paths() is not None
+
+    def _lazy_model(self) -> Any | None:
+        if self._model is None and not self._tried:
+            # Once, whatever happens. Retrying the load per frame would print
+            # the same failure twelve times a second forever.
+            self._tried = True
+            paths = self._paths()
+            if paths is None:
+                log.error(
+                    "no wake-word models in %s; the panel will hear nothing. "
+                    "Fetch %s*.onnx, melspectrogram.onnx and embedding_model.onnx "
+                    "from the openWakeWord releases.",
+                    self.dir, self.name,
+                )
+                return None
+
+            wakeword, melspec, embedding = paths
             from openwakeword.model import Model
 
-            self._model = Model(wakeword_models=[self.name], inference_framework="onnx")
+            self._model = Model(
+                wakeword_models=[str(wakeword)],
+                melspec_model_path=str(melspec),
+                embedding_model_path=str(embedding),
+                inference_framework="onnx",
+            )
+            log.info("wake word %s loaded from %s", self.name, wakeword.name)
         return self._model
 
     def detect(self, frame: np.ndarray) -> bool:
         """One 80ms frame in, "did they say it" out."""
-        scores = self._lazy_model().predict(frame)
+        model = self._lazy_model()
+        if model is None:
+            return False
+
+        scores = model.predict(frame)
         score = max(scores.values()) if scores else 0.0
         if score >= self.threshold:
             log.info("wake word %s at %.2f", self.name, score)

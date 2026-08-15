@@ -1,30 +1,40 @@
-"""Speech to text and intent, in one call.
+"""Speech to text, on the Pi.
 
-This is the single proprietary dependency in the whole system, and it is
-isolated here on purpose: swapping `provider = "whisper"` in jarvis.toml goes
-fully local and offline, at the cost of much weaker Malayalam.
+This used to be a cloud call, and the README used to admit it as the one
+proprietary dependency in the house. It is now whisper.cpp on the same Raspberry
+Pi that serves the wall, which makes the whole system open source and, more to
+the point, makes it *predictable*. The cloud version failed three separate ways
+in a single evening of testing: the pinned model was retired for new API keys
+and answered 404, its replacement returned 503 under load, and a third
+translated English into German. None of those are things a household display can
+route around, and all of them arrive as "voice is broken" with no explanation.
 
-One Gemini call does transcription, intent classification and the
-general-knowledge fallback together. That collapses what would otherwise be
-three services into one, and it means the candidate intent list — assembled
-from the providers' own `intents` — is applied *during* recognition rather than
-by pattern-matching a transcript afterwards.
+What that costs, stated rather than buried:
 
-The honest cost: on the free tier Google's terms allow prompts and audio to be
-used to improve their models, including human review. The consumer Gemini
-subscription does not change that; API billing is separate. Nothing leaves the
-house until the wake word fires, so this covers deliberate commands rather than
-ambient room audio — but it is a trade, not a free lunch.
+- **English only.** These are the `.en` models, and they are better at English
+  for their size precisely because they gave up everything else.
+- **No general-knowledge answers.** The cloud call used to route *and* answer
+  the long tail in one go. Now an utterance that matches no widget is told so.
+  See `intent.py` — the routing that came free with the transcript now happens
+  locally, against the providers' own declared phrasings.
+
+What it buys: no quota, no key, no rate limit, no model retired out from under
+a working config, no audio leaving the house, and an answer in a couple of
+seconds instead of nine.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
+import os
+import shutil
 import struct
-from dataclasses import dataclass
-from datetime import date
+import tempfile
+from dataclasses import dataclass, field
 from typing import Any
+
+from jarvis.voice.intent import IntentMatcher, slots_for
 
 log = logging.getLogger(__name__)
 
@@ -34,18 +44,20 @@ SAMPLE_RATE = 16000
 @dataclass
 class Understanding:
     transcript: str
-    """Provider slug the utterance routes to, or None for a general question."""
+    """Provider slug the utterance routes to, or None if nothing matched."""
     intent: str | None
-    slots: dict[str, Any]
-    """Set when the model answered a general question directly."""
+    slots: dict[str, Any] = field(default_factory=dict)
+    """Always None now. Kept because the router still offers this tier, and a
+    future local model that can answer the long tail would fill it in."""
     answer: str | None = None
 
 
 def wav_bytes(pcm: bytes, sample_rate: int = SAMPLE_RATE) -> bytes:
     """Wrap raw 16-bit mono PCM in a WAV header.
 
-    Gemini needs a container, and writing 44 bytes here avoids depending on
-    ffmpeg being present on the Pi for a job this small.
+    whisper.cpp reads files, not pipes, and insists on 16 kHz mono — which is
+    exactly what the tablet already sends. Writing 44 bytes here avoids
+    depending on ffmpeg being present on the Pi for a job this small.
     """
     return (
         b"RIFF"
@@ -58,126 +70,119 @@ def wav_bytes(pcm: bytes, sample_rate: int = SAMPLE_RATE) -> bytes:
     )
 
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "transcript": {"type": "string"},
-        "intent": {"type": "string"},
-        "slots": {
-            "type": "object",
-            "properties": {
-                "item": {"type": "string"},
-                "query": {"type": "string"},
-                "line": {"type": "string"},
-                "amount": {"type": "number"},
-            },
-        },
-        "answer": {"type": "string"},
-    },
-    "required": ["transcript", "intent"],
-}
+#: Whisper does not return nothing when it hears nothing — it returns its
+#: favourite something. These are the ones that actually turn up on room tone
+#: and door slams that scored high enough on the wake word. Treated as silence,
+#: because acting on "Thank you." is worse than admitting we missed it.
+_NOISE = frozenset({"you", "thank you", "thanks for watching", "bye", "oh", "um"})
 
 
-def build_prompt(catalogue: dict[str, list[str]], members: list[str]) -> str:
-    lines = [
-        "You are the speech front-end of a household wall display in Berlin.",
-        "Transcribe the audio, then route it.",
-        "",
-        "Available intents and example phrasings:",
-    ]
-    for slug, examples in sorted(catalogue.items()):
-        lines.append(f"  {slug}: {'; '.join(examples)}")
-    lines += [
-        "  home_assistant: turning devices/lights/switches on or off",
-        "  none: anything else",
-        "",
-        "Rules:",
-        "- Transcribe verbatim in the language spoken (English or Malayalam).",
-        "- Pick exactly one intent from the list above.",
-        "- Fill slots when present: `item` for things to add to a list, `query`"
-        "  for music to play, `line` for a specific tram or bus line, `amount`"
-        "  for quantities.",
-        "- If the intent is `none`, answer the question yourself in `answer`,"
-        "  in at most two spoken sentences. Reply in English even when asked in"
-        "  Malayalam: the panel's text-to-speech has no Malayalam voice.",
-        "- Never invent departure times, weather or shopping contents. Those come"
-        "  from live data, so route them to the right intent instead of guessing.",
-        f"- Today is {date.today().isoformat()}. Household members: {', '.join(members) or 'unknown'}.",
-    ]
-    return "\n".join(lines)
+def _clean(raw: str) -> str:
+    """whisper.cpp's stdout, reduced to the words that were actually said."""
+    text = " ".join(raw.split()).strip()
+    # Non-speech is annotated in brackets: [BLANK_AUDIO], (wind blowing).
+    if text.startswith(("[", "(")) and text.endswith(("]", ")")):
+        return ""
+    if text.strip(" .!?,").lower() in _NOISE:
+        return ""
+    return text
 
 
-class GeminiSTT:
+class WhisperSTT:
     def __init__(self, cfg: Any) -> None:
-        self.cfg = cfg
         stt = cfg.section("voice").get("stt", {})
-        self.model = stt.get("model", "gemini-2.5-flash")
-        self.daily_budget = int(stt.get("daily_budget", 400))
-        self._client: Any = None
-        self._spent = 0
-        self._spent_on = date.today()
+        self.name = stt.get("model", "base.en")
+        self.model = cfg.state_dir / "whisper" / f"ggml-{self.name}.bin"
+        self.binary = shutil.which("whisper-cli")
+        # The Pi has four cores and also serves the wall, Jellyfin and Samba.
+        # Leaving one alone keeps a transcription from making the panel stutter.
+        self.threads = int(stt.get("threads", 3))
 
-    def _budget_ok(self) -> bool:
-        """Free tier allows 1500/day. A household lands near 50; hitting this
-        ceiling means something is retrying in a loop, and the right response is
-        to stop rather than to burn the quota silently."""
-        if self._spent_on != date.today():
-            self._spent_on, self._spent = date.today(), 0
-        return self._spent < self.daily_budget
+        # The single most important number here. whisper pads every clip to
+        # thirty seconds and runs its encoder over the whole window, so "next
+        # tram" costs exactly what half a minute of speech costs — measured on
+        # this Pi, 27 seconds for a one-second command. Shrinking the encoder
+        # context to the part that actually contains audio is what makes local
+        # transcription viable at all on this hardware. 0 keeps the full window.
+        self.audio_context = int(stt.get("audio_context", 768))
+        self._matcher: IntentMatcher | None = None
 
-    def _lazy_client(self) -> Any:
-        if self._client is None:
-            from google import genai
+    @property
+    def available(self) -> bool:
+        return bool(self.binary) and self.model.exists()
 
-            self._client = genai.Client(api_key=self.cfg.gemini_api_key)
-        return self._client
-
-    async def understand(
-        self, pcm: bytes, catalogue: dict[str, list[str]], members: list[str]
-    ) -> Understanding | None:
-        if not self.cfg.gemini_api_key:
-            log.error("GEMINI_API_KEY is not set; voice cannot transcribe")
-            return None
-        if not self._budget_ok():
-            log.error("daily STT budget of %d exhausted; refusing", self.daily_budget)
+    async def understand(self, pcm: bytes, catalogue: dict[str, list[str]]) -> Understanding | None:
+        if not self.available:
+            log.error(
+                "whisper unavailable (binary=%s model=%s); fetch ggml-%s.bin into %s",
+                self.binary, self.model, self.name, self.model.parent,
+            )
             return None
 
-        from google.genai import types
-
-        self._spent += 1
-        response = await self._lazy_client().aio.models.generate_content(
-            model=self.model,
-            contents=[
-                build_prompt(catalogue, members),
-                types.Part.from_bytes(data=wav_bytes(pcm), mime_type="audio/wav"),
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SCHEMA,
-                temperature=0.0,
-            ),
-        )
-
-        try:
-            parsed = json.loads(response.text)
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            log.warning("unparseable STT response: %r", getattr(response, "text", None))
+        transcript = await self._transcribe(pcm)
+        if transcript is None:
             return None
+        if not transcript:
+            return Understanding(transcript="", intent=None)
 
-        intent = parsed.get("intent")
+        # Built on first use rather than at startup, so a provider enabled in
+        # jarvis.toml after the service came up is still reachable by voice.
+        if self._matcher is None:
+            self._matcher = IntentMatcher(catalogue)
+
+        intent = self._matcher.match(transcript)
         return Understanding(
-            transcript=parsed.get("transcript", "").strip(),
-            intent=None if intent in (None, "", "none") else intent,
-            slots=parsed.get("slots") or {},
-            answer=(parsed.get("answer") or "").strip() or None,
+            transcript=transcript,
+            intent=intent,
+            slots=slots_for(intent, transcript),
         )
 
+    async def _transcribe(self, pcm: bytes) -> str | None:
+        """Run whisper.cpp over one command. None means it failed outright."""
+        handle, path = tempfile.mkstemp(suffix=".wav")
+        try:
+            with os.fdopen(handle, "wb") as clip:
+                clip.write(wav_bytes(pcm))
 
-def build(cfg: Any) -> GeminiSTT:
-    """Chosen by jarvis.toml. A local whisper backend slots in here."""
-    provider = cfg.section("voice").get("stt", {}).get("provider", "gemini")
-    if provider != "gemini":
+            command = [
+                self.binary,
+                "--model", str(self.model),
+                "--file", path,
+                "--language", "en",
+                "--threads", str(self.threads),
+                "--no-timestamps",
+                "--no-prints",
+            ]
+            if self.audio_context:
+                command += ["--audio-ctx", str(self.audio_context)]
+
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+        finally:
+            # PrivateTmp puts this in the unit's own namespace, but a wall panel
+            # runs for months and a leaked clip per utterance adds up.
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+        if process.returncode != 0:
+            log.error("whisper failed (rc=%s): %s", process.returncode, stderr.decode()[:200])
+            return None
+
+        return _clean(stdout.decode())
+
+
+def build(cfg: Any) -> WhisperSTT:
+    """Chosen by jarvis.toml. Only the local backend exists."""
+    provider = cfg.section("voice").get("stt", {}).get("provider", "whisper")
+    if provider != "whisper":
         raise NotImplementedError(
-            f"stt provider {provider!r} is not built yet — only 'gemini' exists today"
+            f"stt provider {provider!r} is not built — only local 'whisper' exists. "
+            "The cloud backend was removed deliberately; see the module docstring."
         )
-    return GeminiSTT(cfg)
+    return WhisperSTT(cfg)
