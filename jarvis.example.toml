@@ -68,10 +68,14 @@ ttl = 600                 # 10 min
 stale_after = 3600
 useful_for = 10800        # 3h — hours-old temperature is still worth showing
 
+# The "what to take" tile: jacket, umbrella, both or neither.
 [providers.rain]
 ttl = 600
 stale_after = 1800
-useful_for = 1800         # 30 min — a stale 2h rain forecast is worthless
+# 1h. The advice covers the rest of the day, so it survives longer than the
+# old two-hour strip did — but not indefinitely, because an hours-old
+# recommendation is partly about hours you have already spent outdoors.
+useful_for = 3600
 
 [providers.departures]
 ttl = 30
@@ -209,11 +213,20 @@ excerpt_chars = 220
 # ---------------------------------------------------------------------------
 [weather]
 api_base = "https://api.open-meteo.com/v1/forecast"
-# 15-min buckets for the near-term rain strip (8 = next two hours).
-rain_buckets = 8
 forecast_days = 7
-# Probability at or above this reads as "rain likely" in the headline.
+
+# The "what to take" tile. Both answers cover the hours you have left in the
+# day rather than the whole calendar day, so an evening reading is not swayed
+# by a shower that fell before breakfast.
+#
+# Rain probability at or above this means take an umbrella.
 rain_likely_threshold = 40
+# Apparent temperature at or below this means take a jacket. Apparent, not air:
+# it already accounts for wind and humidity, which is what a jacket answers.
+jacket_below = 14
+# Floor on that window, in hours. Late at night the rest of today is too short
+# to advise on, so the window spills into tomorrow and the tile says so.
+advice_min_hours = 6
 
 # ---------------------------------------------------------------------------
 # Grocy — lives on the VPS; the Pi reaches it over the tailnet.

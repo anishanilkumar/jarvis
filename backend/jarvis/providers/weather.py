@@ -1,9 +1,11 @@
-"""Weather and rain from Open-Meteo — free, no key, open DWD/ECMWF model data.
+"""Weather from Open-Meteo — free, no key, open DWD/ECMWF model data.
 
-Two providers rather than one because they age at completely different rates: an
-hours-old temperature is still worth showing, an hours-old "rain in 20 minutes"
-is worthless. Separate providers means separate `useful_for` in jarvis.toml, so
-each expires on its own terms.
+Two providers rather than one because they answer different questions. `Weather`
+reports conditions: what it is doing outside and what it will do this week.
+`Rain` reports a decision: whether to pick up a jacket, an umbrella, both or
+neither on the way out. Splitting them also splits `useful_for` in jarvis.toml —
+an hours-old temperature is still worth reading, an hours-old recommendation
+about the hours you have already spent outdoors is not.
 """
 
 from __future__ import annotations
@@ -136,63 +138,149 @@ class Weather(_OpenMeteo):
 
 
 class Rain(_OpenMeteo):
+    """What to take with you, rather than what the sky is going to do.
+
+    A probability strip made you do the arithmetic yourself — read eight bars,
+    decide what they mean, then decide what to carry. This answers the last
+    question directly and only that: jacket, umbrella, both, or neither.
+
+    Both answers are drawn from the hours you have left in the day, not from
+    the whole calendar day: at six in the evening the shower that fell at
+    breakfast is not a reason to pick up an umbrella. Late at night that
+    remainder shrinks to nothing useful, so the window has a floor and spills
+    into tomorrow — a jacket decided at 23:00 is a decision about the morning.
+    """
+
     slug = "rain"
     intents = [
         "will it rain",
         "is it going to rain",
         "do I need an umbrella",
         "should I take a jacket",
+        # "what should I take" would be the obvious phrasing and is deliberately
+        # not here: every word in it is a stopword, so the matcher reduces it to
+        # nothing and it can never route. "wear" is the one word in that
+        # neighbourhood no other provider claims.
+        "what should I wear",
     ]
 
     async def fetch(self) -> dict[str, Any]:
         wx = self.cfg.section("weather")
-        buckets = wx.get("rain_buckets", 8)
         threshold = wx.get("rain_likely_threshold", 40)
+        jacket_below = wx.get("jacket_below", 14)
+        min_hours = wx.get("advice_min_hours", 6)
 
         raw = await self._get(
-            minutely_15="precipitation,precipitation_probability",
-            hourly="precipitation_probability",
-            forecast_minutely_15=buckets,
-            forecast_days=1,
+            current="apparent_temperature",
+            hourly="apparent_temperature,precipitation_probability",
+            forecast_days=2,
         )
-        minutely = raw["minutely_15"]
+        hourly = raw["hourly"]
 
-        series = [
+        # Open-Meteo is asked for local time, so `current.time` is a clock
+        # reading in the household's own timezone — which saves carrying a
+        # tzdata lookup around just to know what "today" means here.
+        now = datetime.fromisoformat(raw["current"]["time"])
+        this_hour = now.replace(minute=0, second=0, microsecond=0)
+
+        rows = [
             {
-                "time": minutely["time"][i],
-                "probability": minutely["precipitation_probability"][i] or 0,
-                "mm": minutely["precipitation"][i] or 0.0,
+                "time": hourly["time"][i],
+                "apparent": hourly["apparent_temperature"][i],
+                "probability": hourly["precipitation_probability"][i] or 0,
             }
-            for i in range(len(minutely["time"]))
+            for i in range(len(hourly["time"]))
+            if datetime.fromisoformat(hourly["time"][i]) >= this_hour
         ]
+        rest_of_today = [
+            r for r in rows if datetime.fromisoformat(r["time"]).date() == now.date()
+        ]
+        window = rest_of_today if len(rest_of_today) >= min_hours else rows[:min_hours]
 
-        # The headline is the whole point of this tile: not a chart to study,
-        # one sentence answering "do I need a jacket right now".
-        first_wet = next((p for p in series if p["probability"] >= threshold), None)
-        if first_wet is None:
-            headline, expected = "Dry for the next two hours", False
-        else:
-            when = datetime.fromisoformat(first_wet["time"])
-            soonest = series[0]["time"] == first_wet["time"]
-            headline = (
-                "Rain right about now"
-                if soonest
-                else f"Rain likely around {when.strftime('%-H:%M')}"
-            )
-            expected = True
+        # Apparent temperature already folds in wind chill and humidity, which
+        # is exactly the number a jacket is a response to. Raw air temperature
+        # would let a cold, hard wind off the Panke read as a mild afternoon.
+        #
+        # A null temperature is dropped rather than defaulted: a gap in the
+        # model output is not evidence of a mild hour, and coercing it to zero
+        # would recommend a jacket on a missing reading.
+        warm = [r for r in window if r["apparent"] is not None]
+        coldest = min(warm, key=lambda r: r["apparent"]) if warm else None
+        wettest = max(window, key=lambda r: r["probability"]) if window else None
+
+        jacket = coldest is not None and coldest["apparent"] <= jacket_below
+        umbrella = wettest is not None and wettest["probability"] >= threshold
+
+        spans_tomorrow = bool(window) and (
+            datetime.fromisoformat(window[-1]["time"]).date() != now.date()
+        )
 
         return {
-            "headline": headline,
-            "rain_expected": expected,
-            "threshold": threshold,
-            "series": series,
-            "peak": max((p["probability"] for p in series), default=0),
+            "jacket": {
+                "needed": jacket,
+                "apparent": round(coldest["apparent"]) if coldest else None,
+                "at": coldest["time"] if coldest else None,
+                "below": jacket_below,
+            },
+            "umbrella": {
+                "needed": umbrella,
+                "probability": wettest["probability"] if wettest else 0,
+                "at": wettest["time"] if wettest else None,
+                "threshold": threshold,
+            },
+            "headline": _headline(jacket, umbrella),
+            "through": window[-1]["time"] if window else None,
+            "spans_tomorrow": spans_tomorrow,
         }
 
     async def handle_intent(
         self, utterance: str, slots: dict[str, Any], speaker: str | None
     ) -> Speech:
         data = await self.fetch()
-        if not data["rain_expected"]:
-            return Speech(text="No rain expected in the next two hours.", focus="rain")
-        return Speech(text=f"{data['headline']}, peaking at {data['peak']} percent.", focus="rain")
+        jacket, umbrella = data["jacket"], data["umbrella"]
+        spoken = utterance.lower()
+
+        # Asked about one of the two specifically, answer only that one — the
+        # question was "do I need an umbrella", not "brief me on the weather".
+        if "umbrella" in spoken or "rain" in spoken:
+            if not umbrella["needed"]:
+                return Speech(
+                    text=f"No umbrella needed. Rain peaks at {umbrella['probability']} percent.",
+                    focus="rain",
+                )
+            return Speech(
+                text=(
+                    f"Take an umbrella. Rain reaches {umbrella['probability']} percent "
+                    f"around {_clock(umbrella['at'])}."
+                ),
+                focus="rain",
+            )
+        if "jacket" in spoken:
+            if not jacket["needed"]:
+                return Speech(
+                    text=f"No jacket needed. It stays around {jacket['apparent']} degrees.",
+                    focus="rain",
+                )
+            return Speech(
+                text=(
+                    f"Take a jacket. It feels like {jacket['apparent']} degrees "
+                    f"by {_clock(jacket['at'])}."
+                ),
+                focus="rain",
+            )
+
+        return Speech(text=f"{data['headline']}.", focus="rain")
+
+
+def _clock(iso: str | None) -> str:
+    return datetime.fromisoformat(iso).strftime("%-H:%M") if iso else "later"
+
+
+def _headline(jacket: bool, umbrella: bool) -> str:
+    if jacket and umbrella:
+        return "Take a jacket and an umbrella"
+    if jacket:
+        return "Take a jacket"
+    if umbrella:
+        return "Take an umbrella"
+    return "Nothing to take"

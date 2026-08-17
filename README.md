@@ -3,8 +3,9 @@
 A wall-mounted household display and voice front-end. Runs on a Raspberry Pi,
 shown on a cheap Android tablet bolted to the wall.
 
-Weather, rain, live BVG tram/bus departures for your stop, a Grocy meal plan and
-shopping list, and music — driven by touch and by "hey jarvis".
+Weather, a jacket-or-umbrella call for the day, live BVG tram/bus departures for
+your stop, a Grocy meal plan and shopping list, and music — driven by touch and
+by "hey jarvis".
 
 The tablet is stock Android running a kiosk browser. **No custom ROM.** All the
 logic lives on the Pi, so features get added on a real machine and the tablet is
