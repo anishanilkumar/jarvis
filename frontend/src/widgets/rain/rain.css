@@ -1,80 +1,76 @@
-/* The headline is the tile's answer, so it takes the free space; the bars are
-   a fixed reference strip underneath rather than the other way round. */
-.rain-headline {
-  flex: 1;
+/* One icon, two icons, or a sentence — the tile has to look composed in all
+   three states, so the row centres its contents rather than packing them left.
+   A lone umbrella hanging off the left edge reads as a missing sibling. */
+.take {
   display: flex;
   align-items: center;
-  color: var(--ink-dim);
-  line-height: 1.2;
-}
-.rain-headline[data-wet='true'] {
+  justify-content: center;
+  gap: 2.25rem;
   color: var(--arc);
 }
 
-.rain-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.375rem;
-  min-height: 3.75rem;
-  /* The baseline is what makes short bars read as a measurement against zero
-     rather than as debris at the bottom of an empty tile. */
-  border-bottom: var(--rule) solid var(--engrave);
-  padding-bottom: 0.125rem;
+/* Nothing to take is a real answer, not an absence, but it is not news either:
+   dimmed to the same weight as a timestamp so a glance across the wall skips
+   it and stops on the days that do want something. */
+.take[data-empty='true'] {
+  color: var(--ink-dim);
 }
 
-.rain-col {
-  flex: 1;
-  height: 100%;
+.take-item {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.rain-bar {
-  width: 100%;
-  background: var(--engrave);
-  transition: height 400ms var(--ease), background 400ms var(--ease);
+.take-glyph {
+  /* Two glyphs at rest look pasted on; a slow breath on the stroke colour ties
+     them to the rest of the panel's live-data language. */
+  transition: color 400ms var(--ease);
 }
-.rain-bar[data-wet='true'] {
-  background: var(--arc);
+
+.take-name {
+  font-family: var(--face-mono);
+  font-size: var(--t-min);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* Carries its own size rather than borrowing `.body`, which would also bring
+   `.body`'s ink colour and undo the dimming above. */
+.take-none {
+  font-size: var(--t-body);
+  line-height: 1.35;
 }
 
 /* ---- Detail ----------------------------------------------------------- */
 
-.rain-rows {
+.take-rows {
   list-style: none;
   display: flex;
   flex-direction: column;
-  justify-content: space-evenly;
+  justify-content: center;
+  gap: 1.5rem;
   margin-top: 1rem;
 }
 
-.rain-row {
-  display: grid;
-  grid-template-columns: 5.625rem 1fr 5.625rem 6.25rem;
+.take-row {
+  display: flex;
   align-items: center;
-  gap: 1.125rem;
-  padding: 0.5rem 0;
+  gap: 1.5rem;
+  padding: 0.75rem 0;
+  /* Both rows are always present here — the detail view has to explain the
+     "no" as much as the "yes", or you cannot tell a considered no from a
+     forecast that never arrived. The needed one is simply lit. */
+  color: var(--slate);
+  transition: color 400ms var(--ease);
 }
 
-.rain-track {
-  height: 0.875rem;
-  background: var(--engrave);
-}
-
-.rain-fill {
-  height: 100%;
-  background: var(--arc-dim);
-  transition: width 400ms var(--ease);
-}
-.rain-fill[data-wet='true'] {
-  background: var(--arc);
-}
-
-.rain-pct {
-  font-size: var(--t-body);
-  text-align: right;
-}
-
-.readout[data-wet='true'] {
+.take-row[data-needed='true'] {
   color: var(--arc);
+}
+
+.take-row .readout {
+  color: currentColor;
 }
