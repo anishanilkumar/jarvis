@@ -2,18 +2,21 @@
  * What to take with you.
  *
  * The tile used to show a probability strip, which handed you the raw forecast
- * and left you to work out what it meant while putting your shoes on. It now
- * shows the conclusion: an icon appears only when the answer is yes, so the
- * tile is read by counting the marks on it, not by reading it at all.
+ * and left you to work out what it meant while putting your shoes on. It shows
+ * the conclusion instead.
  *
- * The empty case earns its own line. A tile that goes blank when there is
- * nothing to take is indistinguishable from a tile that has crashed.
+ * Two slots, always both drawn. Each one swaps its glyph rather than vanishing:
+ * jacket or t-shirt, open umbrella or folded umbrella, lit when you need the
+ * thing and greyed when you don't. Hiding the "no" answers was the first cut at
+ * this, and it made an unlucky tile — cold but dry — sit half empty, which reads
+ * as a widget that failed to draw rather than one with an opinion. Two greyed
+ * marks say "asked and answered" in a way a blank space cannot.
  */
 
 import type { JSX } from 'preact'
 
 import type { Widget, WidgetProps } from '../../types'
-import { JacketGlyph, UmbrellaGlyph } from './glyphs'
+import { FoldedUmbrellaGlyph, JacketGlyph, TShirtGlyph, UmbrellaGlyph } from './glyphs'
 import './rain.css'
 
 interface Advice {
@@ -37,26 +40,20 @@ function Card({ slice }: WidgetProps<Data>) {
   if (!data) return <div class="void">{slice.error ? 'no forecast' : 'waiting'}</div>
 
   const { jacket, umbrella } = data
-  const nothing = !jacket.needed && !umbrella.needed
 
   return (
     <div class="stack fill">
       <span class="label">{data.spans_tomorrow ? 'Next few hours' : 'Today'}</span>
 
-      <div class="take fill" data-empty={nothing}>
-        {jacket.needed && (
-          <div class="take-item">
-            <JacketGlyph size={104} />
-            <span class="take-name">Jacket</span>
-          </div>
-        )}
-        {umbrella.needed && (
-          <div class="take-item">
-            <UmbrellaGlyph size={104} />
-            <span class="take-name">Umbrella</span>
-          </div>
-        )}
-        {nothing && <span class="take-none">Nothing to take</span>}
+      <div class="take fill">
+        <div class="take-item" data-needed={jacket.needed}>
+          {jacket.needed ? <JacketGlyph size={104} /> : <TShirtGlyph size={104} />}
+          <span class="take-name">{jacket.needed ? 'Jacket' : 'T-shirt'}</span>
+        </div>
+        <div class="take-item" data-needed={umbrella.needed}>
+          {umbrella.needed ? <UmbrellaGlyph size={104} /> : <FoldedUmbrellaGlyph size={104} />}
+          <span class="take-name">Umbrella</span>
+        </div>
       </div>
 
       <div class="spread">
@@ -107,7 +104,7 @@ function Detail({ slice }: WidgetProps<Data>) {
 
       <ul class="take-rows fill">
         <Line
-          glyph={<JacketGlyph size={56} />}
+          glyph={jacket.needed ? <JacketGlyph size={56} /> : <TShirtGlyph size={56} />}
           name="Jacket"
           needed={jacket.needed}
           because={
@@ -119,7 +116,7 @@ function Detail({ slice }: WidgetProps<Data>) {
           }
         />
         <Line
-          glyph={<UmbrellaGlyph size={56} />}
+          glyph={umbrella.needed ? <UmbrellaGlyph size={56} /> : <FoldedUmbrellaGlyph size={56} />}
           name="Umbrella"
           needed={umbrella.needed}
           because={

@@ -1,9 +1,14 @@
 /**
- * The two things you might pick up on the way out, drawn in the same stroked
- * instrument language as the weather glyphs next door — same 48-unit grid, same
- * 2.5 stroke, same `currentColor`. A jacket lifted from an icon set would be a
+ * What you might pick up on the way out, drawn in the same stroked instrument
+ * language as the weather glyphs next door — same 48-unit grid, same 2.5
+ * stroke, same `currentColor`. A jacket lifted from an icon set would be a
  * filled, rounded, slightly cartoon object sitting on a panel of engraved
  * marks, and that difference reads from across the hallway.
+ *
+ * Four glyphs, in two opposed pairs: jacket/t-shirt and open/folded umbrella.
+ * The tile always shows one of each pair, so "no" is a drawn answer rather than
+ * an absent one — a greyed t-shirt states that the cold was considered, where
+ * an empty half-tile only says nothing is there.
  */
 
 import type { ComponentChildren } from 'preact'
@@ -47,6 +52,18 @@ export function JacketGlyph(props: Props) {
   )
 }
 
+export function TShirtGlyph(props: Props) {
+  return (
+    <Frame {...props}>
+      {/* The jacket's silhouette with the sleeves cut to the elbow and the
+          collar opened into a crew neck — deliberately the same construction,
+          so the pair reads as one garment changing rather than two unrelated
+          drawings swapping places. */}
+      <path d="M18 10 q6 6 12 0 L37 13 L43 25 L36 28 L33 23 L34 42 L14 42 L15 23 L12 28 L5 25 L11 13 Z" />
+    </Frame>
+  )
+}
+
 export function UmbrellaGlyph(props: Props) {
   return (
     <Frame {...props}>
@@ -56,6 +73,26 @@ export function UmbrellaGlyph(props: Props) {
       <path d="M8 26 q4 5 8 0 q4 5 8 0 q4 5 8 0 q4 5 8 0" />
       <path d="M24 26 V38" />
       <path d="M24 38 a4 4 0 1 1 -8 0" />
+    </Frame>
+  )
+}
+
+export function FoldedUmbrellaGlyph(props: Props) {
+  return (
+    <Frame {...props}>
+      {/* Furled canopy: a narrow spindle rather than a scaled-down dome. The
+          width is the whole distinction at a glance — an open umbrella is wide
+          and a folded one is tall, and that difference survives being greyed
+          out and read from across the room. */}
+      <path d="M24 3 C17 13 17 27 20 32 L28 32 C31 27 31 13 24 3 Z" />
+      {/* The two ties. They stop the spindle reading as a leaf or a feather. */}
+      <path d="M18.6 18 h10.8" />
+      <path d="M19.8 26 h8.4" />
+      {/* Shaft and hook are longer than the open umbrella's, not equal to them:
+          a furled canopy is slim, and at matched proportions this glyph carried
+          visibly less weight than the other three and read as half-drawn. */}
+      <path d="M24 32 V40" />
+      <path d="M24 40 a5 5 0 1 1 -10 0" />
     </Frame>
   )
 }
