@@ -95,7 +95,27 @@ def _destination(direction: str) -> str:
     return text.strip() or direction
 
 
-def _group_label(direction: str, groups: dict[str, list[str]]) -> str | None:
+def _natural_line(name: str) -> tuple[tuple[int, Any], ...]:
+    """Sort key that reads a line name the way a person does.
+
+    Plain string order puts M13 before M4 and S25 before S2, because it compares
+    "1" against "4" and never sees the numbers. Splitting into digit and
+    non-digit runs and comparing the digits numerically gives S1, S2, S25, S26
+    and 106, 187, M48, M85 — which is the order these appear in on every sign in
+    the city.
+
+    Digits sort ahead of letters, so a numbered bus lands above a metro line
+    rather than interleaving with it.
+    """
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in re.findall(r"\d+|\D+", name)
+    )
+
+
+def _group_label(
+    line: str, direction: str, groups: dict[str, list[str]]
+) -> str | None:
     """The configured name for this heading, if the board declares one.
 
     This is what folds short-turns back into the service they belong to. The U7
@@ -103,11 +123,21 @@ def _group_label(direction: str, groups: dict[str, list[str]]) -> str | None:
     it — and five strips for one direction of one line is exactly the noise the
     route grouping exists to remove. Substring matching, and first match wins,
     so order the table with the specific patterns above the general ones.
+
+    A pattern may be scoped to one line as "S1:Potsdamer Platz". Termini are not
+    unique to a line — the S1 turns short at the platform the S26 terminates on
+    — so an unscoped "Potsdamer Platz" folded into the S1's northbound heading
+    would quietly relabel the S26's own service as an S1 destination. Scope a
+    pattern whenever the place, not the line, is what you are naming.
     """
     haystack = _norm(direction)
     for label, patterns in groups.items():
-        if any(_norm(pattern) in haystack for pattern in patterns):
-            return label
+        for pattern in patterns:
+            want_line, _, text = pattern.rpartition(":")
+            if want_line and _norm(want_line) != _norm(line):
+                continue
+            if _norm(text) in haystack:
+                return label
     return None
 
 
@@ -286,7 +316,7 @@ class Departures(Provider):
         routes: dict[tuple[str, str], dict[str, Any]] = {}
         for departure in departures:
             destination = (
-                _group_label(departure["direction"], groups)
+                _group_label(departure["line"], departure["direction"], groups)
                 or departure["destination"]
             )
             route = routes.setdefault(
@@ -303,7 +333,18 @@ class Departures(Provider):
             )
             route["departures"].append(departure)
 
-        ordered = sorted(routes.values(), key=lambda route: (route["order"], route["line"]))
+        # "line" sorts by line and then destination, and is the mode to reach for
+        # when a stop serves several lines going to genuinely different places.
+        # It is also the only one that survives a terminus the config has never
+        # seen: the declared order below can't place a short-turn it doesn't
+        # know about, and two lines can share a terminus name — the S1 turns
+        # short at the same platform the S26 terminates on — which is enough to
+        # scatter a declared order across lines.
+        if board.get("order", conf.get("order", "listed")) == "line":
+            key = lambda route: (_natural_line(route["line"]), route["destination"])
+        else:
+            key = lambda route: (route["order"], route["line"])
+        ordered = sorted(routes.values(), key=key)
 
         for route in ordered:
             # Depth is per route and generous rather than exact: the panel drops

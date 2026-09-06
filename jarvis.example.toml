@@ -154,6 +154,13 @@ route_length = 4
 #             a few minutes further out than the others.
 #   "soonest" promote whatever leaves next. Use this only where the routes are
 #             alternatives to each other — several bus lines off one corner.
+#   "line"    sort by line, then destination, with line numbers read the way a
+#             person reads them (S2 before S25, M4 before M13). Best for a stop
+#             serving several lines to genuinely different places: the line
+#             column reads straight down the left, and unlike "listed" it can
+#             place a terminus the config has never seen. A busy S-Bahn station
+#             will report a dozen-plus termini across a day, most of them
+#             short-turns that appear for an hour and vanish.
 order = "listed"
 
 # stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
@@ -189,6 +196,12 @@ lines = []
 # Headings you don't name still get a row; they just keep the API's own name,
 # shortened (station-class prefixes, "(Berlin)", "Bhf" and the street after a
 # district comma are all dropped). Name one here when that reads badly.
+#
+# A pattern may be scoped to one line as "M10:Nordbahnhof". Termini are not
+# unique to a line — one line's short-turn is often another's terminus — so an
+# unscoped pattern folded into the first line's heading would quietly relabel
+# the second line's own service. Scope it whenever you are naming the place
+# rather than the line.
 # [departures.boards.groups]
 # "Warschauer Str." = ["Warschauer Str.", "Frankfurter Tor"]
 

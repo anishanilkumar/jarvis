@@ -56,8 +56,8 @@ interface Board {
   rows: number
   /** Countdowns along each strip. */
   route_length: number
-  /** How to pick when there are more routes than rows. */
-  order: 'listed' | 'soonest'
+  /** How the provider ordered `routes`, and how to pick when more than `rows`. */
+  order: 'listed' | 'soonest' | 'line'
   routes?: Route[]
   departures: Departure[]
   warnings: string[]
@@ -149,12 +149,13 @@ function nextCatchable(route: Route, board: Board, nowMs: number): number {
 /**
  * The routes that fit, and in what order.
  *
- * "listed" keeps the order the provider declared — for a stop whose lines go to
- * genuinely different places, because sorting by departure time there silently
- * drops a whole direction the moment its train is a few minutes further out.
- * "soonest" is for a stop whose lines are alternatives to each other, like five
- * bus routes off one corner, where the row is worth giving to whatever leaves
- * next.
+ * "listed" and "line" both arrive already ordered by the provider and are taken
+ * as they come — for a stop whose lines go to genuinely different places, where
+ * sorting by departure time silently drops a whole direction the moment its
+ * train is a few minutes further out. "soonest" is for a stop whose lines are
+ * alternatives to each other, like five bus routes off one corner, where the
+ * row is worth giving to whatever leaves next; that one is re-sorted here on
+ * every tick, because which route leaves next is a fact about this minute.
  */
 function visibleRoutes(board: Board, nowMs: number, expired: boolean): Route[] {
   const routes = board.routes ?? []
