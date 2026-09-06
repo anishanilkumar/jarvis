@@ -62,6 +62,7 @@ export function Panel() {
           <focused.Detail
             slice={slice}
             expired={isExpired(slice.fetched_at, slice.useful_for, nowMs)}
+            offline={offline}
             act={(payload) => act(focused.slug, payload)}
           />
         </div>
@@ -81,9 +82,15 @@ export function Panel() {
     <div class="panel">
       {shown.map((widget) => {
         const slice = panelState[widget.slug] ?? emptySlice()
-        // Expiry only bites while we're offline. When the Pi is reachable, its
-        // own `stale` flag is the authority and the data is as fresh as it gets.
-        const expired = offline && isExpired(slice.fetched_at, slice.useful_for, nowMs)
+        // Expiry does not care WHY the data stopped arriving.
+        //
+        // This used to require `offline`, on the reasoning that a reachable Pi
+        // serves the freshest data there is. That reasoning skipped the more
+        // common outage by far: the panel reaches the Pi perfectly well and the
+        // Pi cannot reach its upstream. Departures then sat there counting down
+        // from a fetch twenty minutes old — the exact thing `useful_for` is
+        // configured to prevent, and the tile's own comment forbids.
+        const expired = isExpired(slice.fetched_at, slice.useful_for, nowMs)
 
         return (
           <section
@@ -97,6 +104,7 @@ export function Panel() {
             <widget.Card
               slice={slice}
               expired={expired}
+              offline={offline}
               act={(payload) => act(widget.slug, payload)}
             />
             {(offline || slice.stale) && slice.fetched_at !== null && (

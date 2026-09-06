@@ -282,7 +282,95 @@ function BoardBlock({
   )
 }
 
-function Card({ slice, expired }: WidgetProps<Data>) {
+function since(fetchedAt: number | null, nowMs: number): string {
+  if (fetchedAt === null) return 'never'
+  const minutes = Math.floor(Math.max(0, nowMs / 1000 - fetchedAt) / 60)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)}h`
+}
+
+/**
+ * Whether the numbers above can be believed, and whose fault it is if not.
+ *
+ * The panel has two upstreams and they fail independently: the tablet reaching
+ * the Pi, and the Pi reaching BVG. Both used to surface as the same quiet "last
+ * sync 15 minutes ago", which tells you something is wrong and nothing about
+ * what — and the second is far the more common, since a public transit API goes
+ * down more often than the Wi-Fi in one flat.
+ *
+ * A live feed says so rather than showing nothing, because "no news" and "the
+ * status line is broken too" look identical when the only signal is absence.
+ */
+type FeedState = 'live' | 'degraded' | 'frozen' | 'offline'
+
+/**
+ * How bad it is, which is what decides how loudly the strip below says it.
+ *
+ * One missed poll on a 30-second tile is noise, so "live" holds until the
+ * failures are consistent enough to mean something. Defaulting an absent count
+ * to 2 is the version-skew case: a backend predating the counter sends none at
+ * all, and reading that as a single blip would leave the tile claiming "live"
+ * through an outage it can plainly see an error for.
+ */
+function feedState(
+  slice: WidgetProps<Data>['slice'],
+  expired: boolean,
+  offline: boolean,
+): FeedState {
+  if (offline) return 'offline'
+  if (expired) return 'frozen'
+  return slice.error !== null && (slice.failures ?? 2) >= 2 ? 'degraded' : 'live'
+}
+
+function FeedStatus({
+  slice,
+  expired,
+  offline,
+  nowMs,
+}: {
+  slice: WidgetProps<Data>['slice']
+  expired: boolean
+  offline: boolean
+  nowMs: number
+}) {
+  const state = feedState(slice, expired, offline)
+
+  // Offline names the Pi rather than BVG. With the Pi unreachable, whatever we
+  // last heard about its upstream is itself stale, so saying anything about the
+  // feed would be guessing — and the palette has already desaturated the whole
+  // panel, which is the standing signal that this is the link and not the data.
+  if (state === 'offline') {
+    return (
+      <span class="label dep-feed" data-state="offline">
+        <span class="dep-dot" />
+        no link to jarvis · {since(slice.fetched_at, nowMs)} · times are scheduled
+      </span>
+    )
+  }
+
+  if (state === 'live') {
+    return (
+      <span class="label dep-feed" data-state="live">
+        <span class="dep-dot" />
+        bvg live
+      </span>
+    )
+  }
+
+  // Carrying its own age, unlike the quiet states. This line is meant to be the
+  // one thing you read when the board stops making sense, and a self-contained
+  // sentence beats making you find the small print underneath it.
+  return (
+    <span class="label dep-feed" data-state={state}>
+      <span class="dep-dot" />
+      bvg not answering · {since(slice.fetched_at, nowMs)}
+      {state === 'frozen' && ' · times are scheduled'}
+    </span>
+  )
+}
+
+function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
   const data = slice.data
   const nowMs = now.value
 
@@ -327,10 +415,12 @@ function Card({ slice, expired }: WidgetProps<Data>) {
         ))}
       </div>
 
-      {expired && <div class="label frozen-note">No live data · times are scheduled</div>}
-      {!expired && data.warnings.length > 0 && (
-        <div class="dep-warning label">{data.warnings.length} disruption notice(s)</div>
-      )}
+      <div class="spread dep-status" data-state={feedState(slice, expired, offline)}>
+        <FeedStatus slice={slice} expired={expired} offline={offline} nowMs={nowMs} />
+        {data.warnings.length > 0 && (
+          <span class="dep-warning label">{data.warnings.length} disruption notice(s)</span>
+        )}
+      </div>
     </div>
   )
 }

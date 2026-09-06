@@ -6,6 +6,8 @@ export interface Slice<T = any> {
   fetched_at: number | null
   stale: boolean
   error: string | null
+  /** Consecutive failed polls. 0 when the last fetch succeeded. */
+  failures?: number
   /** Seconds this data stays meaningful once we lose the Pi. 0 = forever. */
   useful_for: number
 }
@@ -32,8 +34,11 @@ export interface PanelConfig {
 
 export interface WidgetProps<T = any> {
   slice: Slice<T>
-  /** True once the data has outlived its useful_for while offline. */
+  /** True once the data has outlived its useful_for, for any reason. */
   expired: boolean
+  /** The panel cannot reach the Pi. Distinct from the Pi's own upstream being
+   *  down, which is what `slice.error` reports. */
+  offline?: boolean
   /** POST to /api/action/<slug>. Rejects when the Pi is unreachable. */
   act: (payload: Record<string, unknown>) => Promise<void>
 }

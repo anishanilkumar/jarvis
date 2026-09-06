@@ -52,6 +52,11 @@ class ProviderState:
             "fetched_at": self.fetched_at,
             "stale": self.stale,
             "error": self.error,
+            # How many polls in a row have failed. The panel uses it to tell a
+            # single blip apart from an upstream that is actually down: one
+            # missed fetch on a 30s tile is noise, six in a row is a fact worth
+            # putting on the wall.
+            "failures": self.consecutive_failures,
             # Sent so the tablet can enforce expiry itself while the Pi is
             # unreachable and can't tell it anything.
             "useful_for": self.useful_for,

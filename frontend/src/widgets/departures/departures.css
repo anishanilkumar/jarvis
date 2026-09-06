@@ -171,12 +171,86 @@
   gap: 0.5rem;
 }
 
-.frozen-note {
+/* The status strip under the boards. Quiet by design — it is the line you only
+   read once the numbers above have stopped making sense. */
+.dep-status {
+  border-top: var(--rule) solid var(--engrave);
+  padding-top: 0.5rem;
+  gap: 0.875rem;
+}
+
+.dep-feed {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
   color: var(--slate);
+}
+
+/* A dot rather than a word for the state itself: colour is read before text
+   from across a room, and the text is there for when you actually walk over. */
+.dep-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
+}
+
+/* Loudness tracks severity, and the first version of this had it backwards:
+   the worst state — every number on the board a timetable guess — was drawn in
+   the dimmest colour on the panel, because it read as a caption rather than an
+   alarm. It is the opposite. The moment those countdowns stop being live is the
+   moment this line is the most important text in the tile. */
+
+/* Working is not news. Dim enough to disappear into the rule above it, present
+   only so that "all fine" and "the status line is broken too" aren't the same
+   absence. */
+.dep-feed[data-state='live'] {
+  color: var(--arc-dim);
+}
+
+/* Failing, but the data on screen is still inside its useful life. A warning,
+   not yet a correction: gold, and a step up in size. */
+.dep-feed[data-state='degraded'] {
+  color: var(--gold);
+  font-size: var(--t-body);
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+/* Past useful_for. The countdowns have already turned into scheduled clock
+   times, so this line is what explains why the board suddenly looks different —
+   it carries the same weight as a departure row, because it outranks one. */
+.dep-feed[data-state='frozen'],
+.dep-feed[data-state='offline'] {
+  color: var(--gold);
+  font-size: var(--t-body);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+/* Gold is the warning temperature, never the alert one: --alert is reserved for
+   cancellations, and spending it here would cost the panel the one colour that
+   currently means "this specific train is gone". */
+.dep-status[data-state='degraded'],
+.dep-status[data-state='frozen'],
+.dep-status[data-state='offline'] {
+  border-top-color: var(--gold);
+}
+
+/* Bigger dot to match the bigger text, so it stays a bullet and not a speck. */
+.dep-status[data-state='degraded'] .dep-dot,
+.dep-status[data-state='frozen'] .dep-dot,
+.dep-status[data-state='offline'] .dep-dot {
+  width: 0.6875rem;
+  height: 0.6875rem;
 }
 
 .dep-warning {
   color: var(--gold);
+  white-space: nowrap;
 }
 
 .dep-warnings {
