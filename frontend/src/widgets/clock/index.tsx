@@ -87,6 +87,10 @@ function Card({ slice }: WidgetProps<Data>) {
 
 export default {
   slug: 'clock',
-  size: { w: 1, h: 2 },
+  // Full height of its column. It grew into the cell the music tile gave up:
+  // the grid is twelve cells and the layout deliberately leaves the bottom
+  // right one empty, because that is where the voice button floats. Leaving
+  // two empty instead reads as a tile that failed to load rather than as space.
+  size: { w: 1, h: 3 },
   Card,
 } satisfies Widget

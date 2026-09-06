@@ -58,12 +58,29 @@ ssh "$HOST" "sudo systemctl restart jarvis-dashboard"
 ssh "$HOST" "sudo systemctl restart jarvis-voice || echo '   (voice not running — see README: voice venv)'"
 
 echo "==> health"
-sleep "$SERVICE_WAIT"
-# Fail the deploy on an unhealthy backend. Exiting 0 after shipping a broken
-# build is how a wall display stays broken until somebody walks past it.
-ssh "$HOST" "systemctl is-active --quiet jarvis-dashboard" || {
-  echo "!! jarvis-dashboard is not active — check: ssh $HOST journalctl -u jarvis-dashboard -n 50" >&2
-  exit 1
-}
-ssh "$HOST" "curl -sS --fail localhost:8140/api/health" && echo
+# Poll rather than sleep-then-check-once.
+#
+# A fixed wait was measured wrong on the real Pi. The dashboard holds an SSE
+# stream open to the wall tablet, and that stream keeps the old process alive
+# through SIGTERM — systemd waits out its stop timeout and then SIGKILLs, so the
+# restart takes twenty-odd seconds rather than one. A four second wait landed in
+# the middle of that window and reported "connection refused" on a deploy that
+# was completely fine, which is worse than no check: a health gate you learn to
+# ignore is not a health gate.
+#
+# Still fails the deploy on a backend that is genuinely down. Exiting 0 after
+# shipping a broken build is how a wall display stays broken until somebody
+# walks past it.
+deadline=$(( SECONDS + ${JARVIS_HEALTH_TIMEOUT:-90} ))
+health=""
+until [[ -n "$health" ]]; do
+  health="$(ssh "$HOST" "curl -sS --fail --max-time 5 localhost:8140/api/health" 2>/dev/null || true)"
+  [[ -n "$health" ]] && break
+  if (( SECONDS >= deadline )); then
+    echo "!! jarvis-dashboard never answered — check: ssh $HOST journalctl -u jarvis-dashboard -n 50" >&2
+    exit 1
+  fi
+  sleep "$SERVICE_WAIT"
+done
+echo "$health"
 echo "done"

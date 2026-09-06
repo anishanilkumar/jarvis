@@ -1,6 +1,6 @@
-/* Boards stack in journey order: the stop you walk to, then the one you change
-   at. Neither one takes what it likes — a connection you can't see is a
-   connection you'll miss. */
+/* Boards stack nearest-first: the corner, then the station six minutes away.
+   Neither one takes what it likes — a board that grew to fit its own routes
+   would push the stop you actually use off the bottom of the tile. */
 .dep-boards {
   display: flex;
   flex-direction: column;
@@ -26,9 +26,9 @@
   padding-bottom: 0.375rem;
 }
 
-/* The destination, not the stop. Dimmer than the board name because you learn
-   it once and then only ever read the numbers. */
-.dep-toward {
+/* The stop, next to the board name. Dimmer, because you learn where you walk
+   once and then only ever read the numbers. */
+.dep-stop {
   color: var(--ink-dim);
   letter-spacing: 0.06em;
 }
@@ -38,7 +38,7 @@
   padding: 0.5rem 0;
 }
 
-.dep-list {
+.route-list {
   list-style: none;
   display: flex;
   flex-direction: column;
@@ -49,39 +49,36 @@
   flex: 1;
 }
 
-.dep {
+/* One line, one heading, and its next few times. The two fixed columns are the
+   only things repeated down a board, so they're sized to the widest realistic
+   value and then left alone: a destination column that resized per row would
+   put the numbers in a different place on every line, and a column of numbers
+   you can't scan down is the whole reason this isn't a list of departures. */
+.route {
   display: grid;
-  grid-template-columns: 5.75rem 1fr auto auto;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 1rem;
-  padding: 0.375rem 0;
+  gap: 0.875rem;
+  padding: 0.3125rem 0;
   border-bottom: var(--rule) solid var(--engrave);
 }
-.dep:last-child {
+.route:last-child {
   border-bottom: none;
 }
 
-/* The one you've missed. Dimmed, not hidden, and always at the top of the
-   board: it's the row that tells you whether the eleven minute wait is the
-   timetable or your own fault. Dim enough that the eye lands on the first row
-   below it — the first one you can actually make. */
-.dep[data-catchable='false'] {
-  opacity: 0.34;
-}
-
-.dep-line {
-  font-size: var(--t-readout);
+.route-line {
+  font-size: var(--t-body);
   font-weight: 700;
   color: var(--arc);
   letter-spacing: -0.02em;
 }
-/* Buses are the secondary mode at this stop; the colour split lets you find
-   the tram rows without reading a single character. */
-.dep[data-product='bus'] .dep-line {
+/* Buses are the secondary mode here; the colour split lets you find the U-Bahn
+   and S-Bahn rows without reading a single character. */
+.route[data-product='bus'] .route-line {
   color: var(--arc-dim);
 }
 
-.dep-dir {
+.route-dest {
   font-size: var(--t-body);
   color: var(--ink);
   white-space: nowrap;
@@ -89,72 +86,89 @@
   text-overflow: ellipsis;
 }
 
-.dep-delay {
-  font-family: var(--face-mono);
-  font-size: var(--t-label);
-  font-weight: 500;
-  color: var(--gold);
-}
-
-.dep-when {
+/* Right-aligned and tabular, so the leading number of every row lands in the
+   same place and the board reads as a column of "when" rather than a ragged
+   edge you have to hunt along. */
+.route-times {
+  list-style: none;
   display: flex;
   align-items: baseline;
-  gap: 0.375rem;
-  justify-self: end;
-  min-width: 8.125rem;
   justify-content: flex-end;
+  gap: 0.75rem;
+  font-family: var(--face-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.dep-min {
-  font-size: var(--t-major);
+.rt {
+  font-size: var(--t-label);
+  color: var(--ink-dim);
+  min-width: 1.75rem;
+  text-align: right;
+}
+
+/* The one number this row exists for: the next one you can actually walk to.
+   Everything after it is context — how often they run, and whether it's worth
+   finishing your coffee. */
+.rt[data-lead='true'] {
+  font-size: var(--t-readout);
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.03em;
+  color: var(--ink);
+  min-width: 2.5rem;
 }
 
-/* Two boards in the height of one: the countdown drops a step so both fit
-   without either being cropped. Still the largest thing in the tile, which is
-   what actually matters — it stays the number you can read from the hallway. */
-.dep-boards[data-boards='2'] .dep-min {
-  font-size: var(--t-readout);
-}
-.dep-boards[data-boards='2'] .dep-line {
-  font-size: var(--t-body);
-}
-.dep-boards[data-boards='2'] .dep {
-  grid-template-columns: 3.5rem 1fr auto auto;
-  padding: 0.25rem 0;
-}
-.dep-boards[data-boards='2'] .dep-when {
-  min-width: 5.5rem;
+/* The one you've missed. Dimmed, not hidden, and always leftmost: it's what
+   tells you whether the eleven minute wait is the timetable or your own fault.
+   Dim enough that the eye lands on the number to its right — the first one you
+   can still make. */
+.rt[data-missed='true'] {
+  opacity: 0.3;
 }
 
-.dep-unit {
-  font-family: var(--face-mono);
-  font-size: var(--t-label);
-  color: var(--ink-dim);
+/* Running late. The number already tells you WHEN — this only says the number
+   came off live data that disagrees with the timetable. */
+.rt[data-late='true'] {
+  color: var(--gold);
 }
 
-/* Frozen: we're offline past this tile's useful_for, so the countdown has
-   stopped and only the scheduled clock time remains. */
-.dep-when.frozen {
-  font-family: var(--face-mono);
-  font-size: var(--t-readout);
+.rt-none {
   color: var(--slate);
 }
 
-.dep-when.cancelled {
-  font-family: var(--face-mono);
-  font-size: var(--t-body);
+.rt-cancelled {
   color: var(--alert);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-}
-.dep[data-cancelled='true'] .dep-line,
-.dep[data-cancelled='true'] .dep-dir {
   text-decoration: line-through;
   text-decoration-thickness: 2px;
+}
+
+/* Frozen: we're offline past this tile's useful_for, so the countdowns have
+   stopped and only the scheduled clock times remain. Narrower per number than a
+   countdown, so the strip gives one back rather than wrapping. */
+.rt-frozen {
+  font-size: var(--t-label);
   color: var(--slate);
+  min-width: 3rem;
+}
+
+/* Four boards in the height the tile has. Everything tightens by a step: the
+   lead countdown gives up size it can afford to give up, because four stops'
+   worth of rows that all fit beats three that are bigger and a fourth cropped
+   off the bottom. It stays the largest thing on its row, which is what actually
+   matters — it's still the number you read from across the room. */
+.dep-boards[data-boards='4'] .dep-board {
+  gap: 0.25rem;
+}
+.dep-boards[data-boards='4'] .route {
+  padding: 0.1875rem 0;
+  gap: 0.625rem;
+}
+.dep-boards[data-boards='4'] .rt[data-lead='true'] {
+  font-size: var(--t-body);
+  min-width: 2.25rem;
+}
+.dep-boards[data-boards='4'] .route-times {
+  gap: 0.5rem;
 }
 
 .frozen-note {
@@ -175,28 +189,56 @@
   overflow: hidden;
 }
 
-/* Tapped: the whole timetable, unfiltered — up to a dozen rows per board where
-   the tile shows a handful. The countdown gives up the size it earns on the
-   wall, and it should: you are standing in front of the panel reading a list,
-   not glancing at one number from the hallway, and a row that doesn't fit is a
-   row that isn't there.
+/* Tapped: every route, at full depth — twenty-odd rows where the tile shows
+   half that. Everything gives up the size it earns on the wall, and it should:
+   you are standing in front of the panel reading a timetable, not glancing at
+   one number from the hallway, and a row that doesn't fit is a row that isn't
+   there.
 
-   Written to match the specificity of the two-board rules above rather than
+   The lead countdown gives up its emphasis too, which is the real difference
+   between the two views. On the wall one number is the answer and the rest is
+   context, so it is twice their size. Here the whole grid is the answer, and a
+   column of numbers you read across and down wants them all the same weight —
+   the emphasis would just be a bright spot to read past.
+
+   Written to match the specificity of the board-count rules above rather than
    beat them with !important, so it's the source order that decides. */
-.dep-boards.dep-boards-full .dep-min,
-.dep-boards.dep-boards-full .dep-when.frozen {
-  font-size: var(--t-headline);
-}
-.dep-boards.dep-boards-full .dep-line {
-  font-size: var(--t-body);
-}
-.dep-boards.dep-boards-full .dep {
-  grid-template-columns: 4.5rem 1fr auto auto;
+.dep-boards.dep-boards-full .route {
+  grid-template-columns: 4rem minmax(0, 1fr) auto;
   padding: 0.125rem 0;
 }
-.dep-boards.dep-boards-full .dep-when {
-  min-width: 5.5rem;
+.dep-boards.dep-boards-full .route-line,
+.dep-boards.dep-boards-full .route-dest {
+  font-size: var(--t-label);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.dep-boards.dep-boards-full .dep-list {
+.dep-boards.dep-boards-full .rt,
+.dep-boards.dep-boards-full .rt[data-lead='true'] {
+  font-size: var(--t-label);
+  min-width: 2.25rem;
+}
+.dep-boards.dep-boards-full .rt[data-lead='true'] {
+  font-weight: 600;
+  color: var(--ink);
+}
+.dep-boards.dep-boards-full .rt-frozen {
+  min-width: 3.25rem;
+}
+.dep-boards.dep-boards-full .route-times {
+  gap: 0.625rem;
+}
+
+/* Clear of the voice button, which floats over the bottom-right corner of every
+   view. The ambient grid keeps a cell empty underneath it; a detail view fills
+   the screen and has no cell to spare, so the last board's last row was running
+   under it and losing its final times. The inset is on the whole column rather
+   than the one row it affects, because a timetable you read down wants its
+   numbers in one line — and the width is free here, where the destinations
+   leave most of the row empty anyway. */
+.dep-boards.dep-boards-full .route {
+  padding-right: max(7rem, 112px);
+}
+.dep-boards.dep-boards-full .route-list {
   gap: 0;
 }

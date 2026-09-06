@@ -12,7 +12,16 @@
  * showing yesterday's tram times.
  */
 
-const VERSION = 'jarvis-v2'
+// Bumping this is the eviction mechanism: `activate` deletes every cache whose
+// key isn't the current VERSION, so a bump wipes the previous one wholesale.
+//
+// Bumped to v3 on 2026-09-06 to evict a v2 cache that had gone bad on the wall
+// tablet. It held an index.html from before the network-first rule below
+// existed, so it kept answering navigations with a document naming a bundle
+// that had since been deleted from the Pi — and answering the requests for that
+// bundle too, out of the same cache. The panel rendered perfectly, from files
+// the server no longer had, and no amount of refreshing could reach past it.
+const VERSION = 'jarvis-v3'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -88,16 +97,43 @@ self.addEventListener('fetch', (event) => {
   // Static assets: cache first. They're content-hashed by Vite, so a stale hit
   // is impossible — a changed build produces a different URL.
   event.respondWith(
-    caches.match(request).then(
-      (hit) =>
-        hit ??
-        fetch(request).then((response) => {
-          if (response.ok) {
-            const copy = response.clone()
-            void caches.open(VERSION).then((cache) => cache.put(request, copy))
-          }
-          return response
-        }),
-    ),
+    caches.match(request).then((hit) => {
+      // ...unless what we cached isn't what we asked for. See below.
+      if (hit && mistyped(request, hit)) {
+        void caches.open(VERSION).then((cache) => cache.delete(request))
+        return fetchAsset(request)
+      }
+      return hit ?? fetchAsset(request)
+    }),
   )
 })
+
+function fetchAsset(request) {
+  return fetch(request).then((response) => {
+    // `response.ok` is not enough, and this is the trap that took the wall
+    // down. Caddy serves the panel with `try_files {path} /index.html`, so a
+    // bundle that no longer exists — every deploy deletes the previous one —
+    // comes back as 200 text/html rather than 404. The browser asked for a
+    // module script, got a document, refused to execute it, and rendered
+    // nothing. Cached on `ok` alone, that document then sat in front of the
+    // real URL forever and no reload could dislodge it.
+    if (response.ok && !mistyped(request, response)) {
+      const copy = response.clone()
+      void caches.open(VERSION).then((cache) => cache.put(request, copy))
+    }
+    return response
+  })
+}
+
+/**
+ * A document where a script or a stylesheet was asked for.
+ *
+ * Always a server telling us the file is gone in the least useful way it
+ * could. Never cache it, never serve it from cache: a wrong answer that
+ * persists is much worse than one that fails again on the next request.
+ */
+function mistyped(request, response) {
+  const wanted = request.destination
+  if (wanted !== 'script' && wanted !== 'style') return false
+  return (response.headers.get('Content-Type') || '').includes('text/html')
+}

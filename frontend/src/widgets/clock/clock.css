@@ -1,6 +1,12 @@
+/* Centred, not top-aligned. The dial is square and the column is narrow, so
+   the dial's size is set by the width and a taller tile cannot make it bigger —
+   the extra height has nothing to spend itself on. Pinned to the top it pooled
+   into one large void beneath the date; centred, the same slack falls either
+   side of the group and reads as margin. */
 .clock-stack {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   height: 100%;
   min-height: 0;
   gap: 0.5rem;
@@ -19,7 +25,10 @@
 }
 
 .clock-voice {
-  flex: 1;
+  /* Sized by its content now that the stack centres. It still grows when voice
+     puts a transcript and a reply in it — there is slack above and below to
+     take, which is the point of centring rather than distributing. */
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;

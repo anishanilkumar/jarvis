@@ -76,6 +76,23 @@ class Config:
         block = self._raw.get("providers", {}).get(slug, {})
         return bool(block.get("enabled", True))
 
+    def provider_tile(self, slug: str) -> bool:
+        """Whether this provider claims a cell on the wall.
+
+        Separate from `enabled` because the two questions are separate. A
+        provider is a source of data, a voice intent and a touch action; a tile
+        is only the first of those. Music is the case that forced the split —
+        its tile is a hint you stop needing once you know the phrase, but the
+        same provider owns "hey jarvis, play…" and the Home Assistant relay
+        behind it, so `enabled = false` would have taken the wall space and the
+        feature together.
+
+        `tile = false` keeps the provider registered and answering, and only
+        stops the panel drawing it.
+        """
+        block = self._raw.get("providers", {}).get(slug, {})
+        return bool(block.get("tile", True))
+
     @property
     def timezone(self) -> str:
         return self.section("general").get("timezone", "Europe/Berlin")

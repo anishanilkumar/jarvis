@@ -133,7 +133,11 @@ async def get_config(request: Request) -> dict[str, Any]:
         # The panel renders what the Pi actually serves. A widget folder exists
         # in the bundle whether or not this household wants that tile, so the
         # registered set — not the build — decides what goes on the wall.
-        "widgets": sorted(scheduler.providers),
+        #
+        # Minus the ones that are registered but tile-less: a provider can be
+        # live for voice and touch while drawing nothing, which is not the same
+        # thing as being switched off.
+        "widgets": sorted(s for s in scheduler.providers if cfg.provider_tile(s)),
         "useful_for": {slug: st.useful_for for slug, st in scheduler.states.items()},
     }
 

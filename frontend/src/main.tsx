@@ -3,6 +3,7 @@ import { effect } from '@preact/signals'
 import { Panel } from './layout'
 import { config, connection, start } from './state'
 import { client, voice } from './voice'
+import { watchForUpdates } from './update'
 import { TalkButton } from './components/TalkButton'
 import './styles/tokens.css'
 
@@ -34,6 +35,11 @@ function App() {
 
 void start()
 render(<App />, document.getElementById('panel')!)
+
+// The kiosk opens this page once and never navigates again, so a deploy would
+// otherwise leave new data being rendered by old code until someone walks over
+// and pulls to refresh.
+watchForUpdates()
 
 // Registered last: the panel must be interactive before we worry about making
 // it survive a reboot.

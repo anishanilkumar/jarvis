@@ -49,11 +49,17 @@ name = "Mitte"
 #              then the tile goes dark rather than showing something wrong.
 #              0 means "never expires" (local or slow-moving data).
 #
-# enabled    = false takes a tile off this panel without deleting the feature.
-#              The provider is never registered, so it never polls its upstream
-#              either, and the widget disappears because the panel renders what
-#              the Pi serves rather than what happens to be in the bundle.
-#              Defaults to true; one line to undo.
+# enabled    = false switches the provider off entirely, without deleting the
+#              feature. It is never registered, so it never polls its upstream,
+#              and its voice intents and touch actions go with it. The widget
+#              disappears because the panel renders what the Pi serves rather
+#              than what happens to be in the bundle.
+# tile       = false keeps the provider registered and answering, and only stops
+#              the panel drawing it. Use this where a provider is worth more
+#              than its cell — music owns "hey jarvis, play…" and the Home
+#              Assistant relay behind it whether or not it has a tile.
+#
+# Both default to true, and either is one line to undo.
 # ---------------------------------------------------------------------------
 
 [providers.clock]
@@ -131,19 +137,30 @@ results = 12
 # as though you had a chance. Measure it once and walk it; a guess here makes
 # every row on the tile a guess.
 walk_minutes = 4
-# How many departures you can still catch each board shows on the ambient tile.
-# The board also shows the one you've just missed, above them and greyed, so a
-# board with rows = 3 is four lines tall. Tap the tile for the full timetable,
-# unfiltered.
+# How many ROUTE rows each board shows on the ambient tile. A route is one line
+# heading one way, and it occupies a single row carrying its next several times
+# — so a stop with a dozen routes is a dozen rows, not a dozen departures. Tap
+# the tile for every route at full depth.
 rows = 3
+# How many countdowns along each row. The first is the next one you can still
+# walk to and is drawn largest; the rest tell you how often they run. The row
+# also shows the one you've just missed, ahead of them and greyed, so it can
+# answer "is the wait the timetable or my own fault".
+route_length = 4
+# What to do when a board has more routes than rows.
+#   "listed"  keep the order the board's [groups] table declares. Use this when
+#             the lines go to genuinely different places, because sorting by
+#             time will silently drop a whole direction the moment its train is
+#             a few minutes further out than the others.
+#   "soonest" promote whatever leaves next. Use this only where the routes are
+#             alternatives to each other — several bus lines off one corner.
+order = "listed"
 
 # stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
 [[departures.boards]]
 name = "Tram"
 stop_id = "900003201"
 stop_name = "Berlin Hauptbahnhof"
-# Shown under the board name as "toward ...". Cosmetic; say it how you say it.
-toward = "Ostbahnhof"
 # Restrict to these modes; empty or absent means everything the stop serves.
 products = ["tram"]
 # Keep only directions matching these fragments. Empty means all.
@@ -153,9 +170,27 @@ directions = []
 # Prefer whichever list is SHORTER. A line usually has one name for the way you
 # don't want and several for the way you do (short-turns, seasonal termini), so
 # excluding the wrong direction is normally both briefer and more durable.
+#
+# Note you often need NEITHER now: a board that keeps both directions simply
+# shows two rows, which is the compact form doing its job. Filter when you want
+# the space back, not because the board can't cope.
 exclude_directions = []
 # Optional: only show these lines. Empty means all.
 lines = []
+
+# Optional. Folds several reported termini into one heading, so short-turns stop
+# costing a row each. Without it the U7 northbound is five rows — Rathaus
+# Spandau plus four points short of it — for one direction of one line.
+#
+# The key is what appears on the wall; the list is fragments matched against
+# what the stop reports, case-insensitively, first match winning. Key order is
+# row order under order = "listed", so write them the way you want to read them.
+#
+# Headings you don't name still get a row; they just keep the API's own name,
+# shortened (station-class prefixes, "(Berlin)", "Bhf" and the street after a
+# district comma are all dropped). Name one here when that reads badly.
+# [departures.boards.groups]
+# "Warschauer Str." = ["Warschauer Str.", "Frankfurter Tor"]
 
 # A second board for the connection you change onto — the stop you ride to and
 # switch at, so the tile reads as one journey. Delete if you don't change; add
@@ -165,7 +200,6 @@ lines = []
 # name = "U-Bahn"
 # stop_id = "<id from the locations query>"
 # stop_name = "<how you'd say the stop>"
-# toward = "<where you're heading>"
 # products = ["subway"]
 # lines = ["<line>"]
 # directions = ["<terminus, spelled as the API reports it>"]
