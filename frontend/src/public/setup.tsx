@@ -131,13 +131,20 @@ export function Setup({ initial = '' }: { initial?: string }) {
           onKeyDown={keys}
         />
 
+        {status === 'searching' && <p class="setup-note">Looking…</p>}
         {status === 'empty' && (
           <p class="setup-note">
             Nothing in Berlin matches that. This dashboard only covers Berlin for
             now, so a Brandenburg address will not come up here.
           </p>
         )}
-        {status === 'error' && <p class="setup-note">The address lookup is not answering.</p>}
+        {status === 'error' && (
+          <p class="setup-note">
+            The address lookup is not answering. It runs on the same service as
+            the departures, so this usually means BVG is down rather than
+            anything here — worth trying again in a few minutes.
+          </p>
+        )}
 
         {hits.length > 0 && (
           <ul class="setup-hits" role="listbox">

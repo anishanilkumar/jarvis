@@ -72,7 +72,13 @@ function App() {
     return startPolling(here)
   }, [here?.lat, here?.lon])
 
-  if (resolving) return <div class="site-booting label">Finding that address…</div>
+  if (resolving) {
+    return (
+      <div class="site-booting">
+        <span class="label">Finding that address…</span>
+      </div>
+    )
+  }
   return here ? <Dashboard /> : <Setup initial={prefill} />
 }
 

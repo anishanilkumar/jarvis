@@ -42,6 +42,17 @@ body {
   --bracket: 1rem;
 }
 
+/* The ?q= link's resolving state. Briefly on a good day, and for as long as
+   the lookup takes to time out on a bad one — so it needs to look like a page
+   rather than a stray line of text in the corner. */
+.site-booting {
+  display: grid;
+  place-items: center;
+  min-height: 60vh;
+  padding: var(--gap);
+  color: var(--slate);
+}
+
 .site {
   max-width: 54rem;
   margin: 0 auto;
