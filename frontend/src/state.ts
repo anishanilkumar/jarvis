@@ -12,20 +12,15 @@
  * subtly wrong; here it's the platform's problem.
  */
 
-import { signal, computed } from '@preact/signals'
 import { loadState, saveState } from './offline'
-import type { Connection, PanelConfig, PanelState } from './types'
+import { config, connection, state } from './signals'
+import type { PanelState } from './types'
 
-export const state = signal<PanelState>({})
-export const config = signal<PanelConfig | null>(null)
-export const connection = signal<Connection>('reconnecting')
-export const expanded = signal<string | null>(null)
-
-/** Ticks once a second so countdowns and staleness stamps recompute. */
-export const now = signal<number>(Date.now())
-setInterval(() => (now.value = Date.now()), 1000)
-
-export const isOffline = computed(() => connection.value === 'offline')
+// The signals themselves live in signals.ts, so a front end that has no stream
+// to open can import them without pulling this transport in behind them. They
+// are re-exported here because this is where the panel has always imported
+// them from, and moving a declaration should not move an import site.
+export { state, config, connection, expanded, now, isOffline } from './signals'
 
 /**
  * Reconnection is ours to own, not the browser's.

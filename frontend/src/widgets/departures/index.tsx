@@ -22,7 +22,7 @@
  * would freeze it at the last fetch.
  */
 
-import { now } from '../../state'
+import { now } from '../../signals'
 import type { Widget, WidgetProps } from '../../types'
 import './departures.css'
 

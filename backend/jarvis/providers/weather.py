@@ -55,6 +55,151 @@ def describe(code: int | None) -> dict[str, str]:
     return {"label": label, "icon": icon}
 
 
+#: The Open-Meteo field lists, named so the two callers of each shaping
+#: function cannot drift apart. The wall's provider and the public dashboard
+#: ask for the same columns because they run the same code over the answer, and
+#: a caller that quietly asked for fewer would KeyError inside the shaping
+#: rather than at the request — the worst place to find out.
+WEATHER_CURRENT = (
+    "temperature_2m,apparent_temperature,weather_code,is_day,"
+    "wind_speed_10m,relative_humidity_2m"
+)
+WEATHER_DAILY = (
+    "temperature_2m_max,temperature_2m_min,weather_code,"
+    "precipitation_probability_max,sunrise,sunset"
+)
+ADVICE_CURRENT = "apparent_temperature"
+ADVICE_HOURLY = "apparent_temperature,precipitation_probability"
+
+
+def shape_weather(raw: dict[str, Any]) -> dict[str, Any]:
+    """Open-Meteo's current+daily response, as the weather tile reads it."""
+    current, daily = raw["current"], raw["daily"]
+
+    return {
+        "temperature": round(current["temperature_2m"]),
+        "apparent": round(current["apparent_temperature"]),
+        "humidity": current.get("relative_humidity_2m"),
+        "wind": round(current.get("wind_speed_10m") or 0),
+        "is_day": bool(current.get("is_day")),
+        "condition": describe(current.get("weather_code")),
+        "today": {
+            "high": round(daily["temperature_2m_max"][0]),
+            "low": round(daily["temperature_2m_min"][0]),
+            "sunrise": daily["sunrise"][0],
+            "sunset": daily["sunset"][0],
+        },
+        "forecast": [
+            {
+                "date": daily["time"][i],
+                "high": round(daily["temperature_2m_max"][i]),
+                "low": round(daily["temperature_2m_min"][i]),
+                "rain_chance": daily["precipitation_probability_max"][i],
+                "condition": describe(daily["weather_code"][i]),
+            }
+            for i in range(len(daily["time"]))
+        ],
+    }
+
+
+def advice_facts(raw: dict[str, Any], *, min_hours: int = 6) -> dict[str, Any]:
+    """The forecast facts a jacket-or-umbrella decision is made from, and only
+    those.
+
+    It stops deliberately short of the decision. `jacket_below` is a preference,
+    and the public dashboard caches this response on rounded coordinates — one
+    answer shared by everyone standing near that rounding. Facts can be cached
+    that way; opinions cannot. So the threshold is applied by whoever holds the
+    preference, which on the wall is the provider below and on a phone is the
+    browser.
+
+    `coldest_apparent` is the raw float rather than the rounded degree the tile
+    prints. The comparison has always been made against the unrounded value —
+    14.4 with jacket_below=14 is not a jacket — and rounding here would move
+    that boundary by half a degree. Callers round for display only.
+    """
+    hourly = raw["hourly"]
+
+    # Open-Meteo is asked for local time, so `current.time` is a clock
+    # reading in the household's own timezone — which saves carrying a
+    # tzdata lookup around just to know what "today" means here.
+    now = datetime.fromisoformat(raw["current"]["time"])
+    this_hour = now.replace(minute=0, second=0, microsecond=0)
+
+    rows = [
+        {
+            "time": hourly["time"][i],
+            "apparent": hourly["apparent_temperature"][i],
+            "probability": hourly["precipitation_probability"][i] or 0,
+        }
+        for i in range(len(hourly["time"]))
+        if datetime.fromisoformat(hourly["time"][i]) >= this_hour
+    ]
+    rest_of_today = [
+        r for r in rows if datetime.fromisoformat(r["time"]).date() == now.date()
+    ]
+    window = rest_of_today if len(rest_of_today) >= min_hours else rows[:min_hours]
+
+    # Apparent temperature already folds in wind chill and humidity, which
+    # is exactly the number a jacket is a response to. Raw air temperature
+    # would let a cold, hard wind off the Panke read as a mild afternoon.
+    #
+    # A null temperature is dropped rather than defaulted: a gap in the
+    # model output is not evidence of a mild hour, and coercing it to zero
+    # would recommend a jacket on a missing reading.
+    warm = [r for r in window if r["apparent"] is not None]
+    coldest = min(warm, key=lambda r: r["apparent"]) if warm else None
+    wettest = max(window, key=lambda r: r["probability"]) if window else None
+
+    return {
+        "coldest_apparent": coldest["apparent"] if coldest else None,
+        "coldest_at": coldest["time"] if coldest else None,
+        "max_probability": wettest["probability"] if wettest else 0,
+        "wettest_at": wettest["time"] if wettest else None,
+        "through": window[-1]["time"] if window else None,
+        "spans_tomorrow": bool(window)
+        and datetime.fromisoformat(window[-1]["time"]).date() != now.date(),
+    }
+
+
+def decide(
+    facts: dict[str, Any], *, jacket_below: int, rain_threshold: int
+) -> dict[str, Any]:
+    """Facts plus two thresholds, as the payload the rain tile has always read.
+
+    Split from `advice_facts` so a cached set of facts can be turned into an
+    answer by whoever holds the preference. The wall calls both in a row and
+    gets exactly the document it got before.
+    """
+    cold = facts["coldest_apparent"]
+    jacket = cold is not None and cold <= jacket_below
+    # `wettest_at is not None` stands in for "the window had any hours in it at
+    # all". Without it a threshold of 0 against an empty window reads 0 >= 0 and
+    # recommends an umbrella on no data.
+    umbrella = (
+        facts["wettest_at"] is not None
+        and facts["max_probability"] >= rain_threshold
+    )
+
+    return {
+        "jacket": {
+            "needed": jacket,
+            "apparent": round(cold) if cold is not None else None,
+            "at": facts["coldest_at"],
+            "below": jacket_below,
+        },
+        "umbrella": {
+            "needed": umbrella,
+            "probability": facts["max_probability"],
+            "at": facts["wettest_at"],
+            "threshold": rain_threshold,
+        },
+        "headline": _headline(jacket, umbrella),
+        "through": facts["through"],
+        "spans_tomorrow": facts["spans_tomorrow"],
+    }
+
+
 class _OpenMeteo(Provider):
     """Shared request plumbing for both weather tiles."""
 
@@ -87,38 +232,9 @@ class Weather(_OpenMeteo):
     async def fetch(self) -> dict[str, Any]:
         days = self.cfg.section("weather").get("forecast_days", 7)
         raw = await self._get(
-            current="temperature_2m,apparent_temperature,weather_code,is_day,"
-            "wind_speed_10m,relative_humidity_2m",
-            daily="temperature_2m_max,temperature_2m_min,weather_code,"
-            "precipitation_probability_max,sunrise,sunset",
-            forecast_days=days,
+            current=WEATHER_CURRENT, daily=WEATHER_DAILY, forecast_days=days
         )
-        current, daily = raw["current"], raw["daily"]
-
-        return {
-            "temperature": round(current["temperature_2m"]),
-            "apparent": round(current["apparent_temperature"]),
-            "humidity": current.get("relative_humidity_2m"),
-            "wind": round(current.get("wind_speed_10m") or 0),
-            "is_day": bool(current.get("is_day")),
-            "condition": describe(current.get("weather_code")),
-            "today": {
-                "high": round(daily["temperature_2m_max"][0]),
-                "low": round(daily["temperature_2m_min"][0]),
-                "sunrise": daily["sunrise"][0],
-                "sunset": daily["sunset"][0],
-            },
-            "forecast": [
-                {
-                    "date": daily["time"][i],
-                    "high": round(daily["temperature_2m_max"][i]),
-                    "low": round(daily["temperature_2m_min"][i]),
-                    "rain_chance": daily["precipitation_probability_max"][i],
-                    "condition": describe(daily["weather_code"][i]),
-                }
-                for i in range(len(daily["time"]))
-            ],
-        }
+        return shape_weather(raw)
 
     async def handle_intent(
         self, utterance: str, slots: dict[str, Any], speaker: str | None
@@ -166,72 +282,14 @@ class Rain(_OpenMeteo):
 
     async def fetch(self) -> dict[str, Any]:
         wx = self.cfg.section("weather")
-        threshold = wx.get("rain_likely_threshold", 40)
-        jacket_below = wx.get("jacket_below", 14)
-        min_hours = wx.get("advice_min_hours", 6)
-
         raw = await self._get(
-            current="apparent_temperature",
-            hourly="apparent_temperature,precipitation_probability",
-            forecast_days=2,
+            current=ADVICE_CURRENT, hourly=ADVICE_HOURLY, forecast_days=2
         )
-        hourly = raw["hourly"]
-
-        # Open-Meteo is asked for local time, so `current.time` is a clock
-        # reading in the household's own timezone — which saves carrying a
-        # tzdata lookup around just to know what "today" means here.
-        now = datetime.fromisoformat(raw["current"]["time"])
-        this_hour = now.replace(minute=0, second=0, microsecond=0)
-
-        rows = [
-            {
-                "time": hourly["time"][i],
-                "apparent": hourly["apparent_temperature"][i],
-                "probability": hourly["precipitation_probability"][i] or 0,
-            }
-            for i in range(len(hourly["time"]))
-            if datetime.fromisoformat(hourly["time"][i]) >= this_hour
-        ]
-        rest_of_today = [
-            r for r in rows if datetime.fromisoformat(r["time"]).date() == now.date()
-        ]
-        window = rest_of_today if len(rest_of_today) >= min_hours else rows[:min_hours]
-
-        # Apparent temperature already folds in wind chill and humidity, which
-        # is exactly the number a jacket is a response to. Raw air temperature
-        # would let a cold, hard wind off the Panke read as a mild afternoon.
-        #
-        # A null temperature is dropped rather than defaulted: a gap in the
-        # model output is not evidence of a mild hour, and coercing it to zero
-        # would recommend a jacket on a missing reading.
-        warm = [r for r in window if r["apparent"] is not None]
-        coldest = min(warm, key=lambda r: r["apparent"]) if warm else None
-        wettest = max(window, key=lambda r: r["probability"]) if window else None
-
-        jacket = coldest is not None and coldest["apparent"] <= jacket_below
-        umbrella = wettest is not None and wettest["probability"] >= threshold
-
-        spans_tomorrow = bool(window) and (
-            datetime.fromisoformat(window[-1]["time"]).date() != now.date()
+        return decide(
+            advice_facts(raw, min_hours=wx.get("advice_min_hours", 6)),
+            jacket_below=wx.get("jacket_below", 14),
+            rain_threshold=wx.get("rain_likely_threshold", 40),
         )
-
-        return {
-            "jacket": {
-                "needed": jacket,
-                "apparent": round(coldest["apparent"]) if coldest else None,
-                "at": coldest["time"] if coldest else None,
-                "below": jacket_below,
-            },
-            "umbrella": {
-                "needed": umbrella,
-                "probability": wettest["probability"] if wettest else 0,
-                "at": wettest["time"] if wettest else None,
-                "threshold": threshold,
-            },
-            "headline": _headline(jacket, umbrella),
-            "through": window[-1]["time"] if window else None,
-            "spans_tomorrow": spans_tomorrow,
-        }
 
     async def handle_intent(
         self, utterance: str, slots: dict[str, Any], speaker: str | None

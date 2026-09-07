@@ -162,6 +162,239 @@ def _direction_allowed(
     return any(_norm(pattern) in haystack for pattern in include)
 
 
+def _setting(board: dict[str, Any], conf: dict[str, Any], key: str, default: Any) -> Any:
+    """This board's own value, then the [departures] default, then the built-in.
+
+    The two-level lookup is what lets a caller with no config at all pass
+    ``conf={}`` and still get sensible numbers out: it hands over a board dict
+    carrying the few values it cares about and lets the built-ins supply the
+    rest. That is the whole reason the shaping below is reusable — the public
+    dashboard has no [departures] table to draw defaults from, because it has
+    no configured stops in the first place.
+    """
+    return board.get(key, conf.get(key, default))
+
+
+def board_params(board: dict[str, Any], conf: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The query string for one board's /stops/<id>/departures request."""
+    conf = conf or {}
+    keep = _setting(board, conf, "results", 12)
+
+    # Ask for far more than we intend to show. `results` is applied upstream,
+    # before any of our filtering, so a board that keeps one direction of one
+    # line was asking for twelve departures and rendering one — the rest of
+    # the tile went blank.
+    #
+    # Route grouping raises the floor again, and this is the subtle one: a
+    # cap that is generous for a board is stingy for a board's *routes*. A
+    # busy interchange runs seventy-odd departures an hour across seventeen
+    # headings, so twelve rows is one row per route and every strip on the
+    # tile shows a single number. The depth has to be there per route, which
+    # means fetching most of the hour. Over-fetching costs nothing on a 30s
+    # refresh and both the flat list and each strip are trimmed below.
+    params: dict[str, Any] = {
+        "duration": _setting(board, conf, "duration_minutes", 60),
+        "results": max(keep * 10, 120),
+        "remarks": "true",
+    }
+
+    # THE GOTCHA: these are opt-*out* flags that all default to true.
+    # Passing tram=true alone does nothing — every other product is still
+    # true and a "tram" board quietly fills with buses. Each unwanted
+    # product has to be named false explicitly.
+    wanted = {product.lower() for product in board.get("products") or []}
+    for product in ALL_PRODUCTS:
+        params[product] = "true" if (not wanted or product in wanted) else "false"
+    return params
+
+
+def shape_board(
+    raw: dict[str, Any],
+    board: dict[str, Any],
+    conf: dict[str, Any] | None = None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """One stop's raw /departures JSON, shaped into the board the panel renders.
+
+    Pure: no Config, no Provider, no HTTP, and no clock beyond `now`. Everything
+    it reads comes out of `board`, with `conf` only as a fallback layer, so the
+    wall passes its whole [departures] table and a stateless caller passes
+    nothing at all.
+
+    `now` must be timezone-aware. BVG timestamps carry an offset, and comparing
+    them against a naive datetime raises rather than quietly going wrong, which
+    is the good outcome but still an outcome to avoid.
+    """
+    conf = conf or {}
+    now = now or datetime.now(timezone.utc)
+
+    keep = _setting(board, conf, "results", 12)
+    # The one threshold: leave now and you are on the platform in this many
+    # minutes. Anything sooner is gone. There is no grace window — a margin
+    # that quietly redefines "too late" makes the board disagree with the
+    # walk it prints in its own header.
+    walk = _setting(board, conf, "walk_minutes", 4)
+
+    only_lines = {line.upper() for line in board.get("lines") or []}
+    include = board.get("directions") or []
+    exclude = board.get("exclude_directions") or []
+
+    departures: list[dict[str, Any]] = []
+    for item in raw.get("departures", []):
+        line = (item.get("line") or {}).get("name") or "?"
+        if only_lines and line.upper() not in only_lines:
+            continue
+        if not _direction_allowed(item.get("direction") or "", include, exclude):
+            continue
+
+        when = item.get("when")
+        planned = item.get("plannedWhen")
+        cancelled = bool(item.get("cancelled"))
+        minutes = _minutes_until(when or planned, now)
+
+        departures.append(
+            {
+                "trip_id": item.get("tripId"),
+                "line": line,
+                "product": (item.get("line") or {}).get("product"),
+                "direction": item.get("direction") or "",
+                # The same heading, cut to wall length. Carried per
+                # departure as well as per route so the expanded list and
+                # the spoken answer read the same as the tile does.
+                "destination": _destination(item.get("direction") or ""),
+                # Absolute times: the panel formats and counts down from
+                # these, so it can stop counting when it goes offline.
+                "when": when,
+                "planned": planned,
+                # HAFAS reports delay in seconds; minutes is what a person
+                # reads off a wall.
+                "delay_minutes": round((item.get("delay") or 0) / 60),
+                "cancelled": cancelled,
+                "minutes": minutes,
+                # Only a hint for the voice answer. The panel recomputes it
+                # every second from `when`, because this one was true when
+                # the Pi fetched and stops being true while the tile sits
+                # on the wall.
+                "catchable": (not cancelled) and minutes is not None and minutes >= walk,
+                "platform": item.get("platform") or item.get("plannedPlatform"),
+            }
+        )
+
+    # Warnings only. Every stop carries permanent "hint" remarks (lift out
+    # of service, ticket info) that would drown the real disruptions.
+    #
+    # Unescaped because BVG's remark text arrives HTML-escaped and lands in
+    # a text node, so the panel was showing literal "&#60; &#62;" mid
+    # sentence where the notice meant an arrow.
+    warnings: list[str] = []
+    for item in raw.get("departures", []):
+        for remark in item.get("remarks") or []:
+            if remark.get("type") == "warning":
+                text = html.unescape(
+                    remark.get("text") or remark.get("summary") or ""
+                ).strip()
+                if text and text not in warnings:
+                    warnings.append(text)
+
+    # One row per line-and-heading. The panel decides which rows fit and
+    # re-decides every tick, so the order here only has to be STABLE: the
+    # stop reports departures by time, and grouping them in arrival order
+    # would reshuffle the board every time a bus ran early.
+    #
+    # The groups table is the declared order, and it is ordered on purpose —
+    # TOML preserves key order, so the sequence you write the headings in is
+    # the sequence they sit in on the wall. Anything ungrouped follows, in
+    # the order the stop first mentioned it.
+    groups: dict[str, list[str]] = board.get("groups") or {}
+    declared = {label: index for index, label in enumerate(groups)}
+    depth = _setting(board, conf, "route_length", 4)
+
+    routes: dict[tuple[str, str], dict[str, Any]] = {}
+    for departure in departures:
+        destination = (
+            _group_label(departure["line"], departure["direction"], groups)
+            or departure["destination"]
+        )
+        route = routes.setdefault(
+            (departure["line"], destination),
+            {
+                "line": departure["line"],
+                "product": departure["product"],
+                "destination": destination,
+                # Position in the declared order; ungrouped routes sort
+                # after every declared one, by when they were first seen.
+                "order": declared.get(destination, len(declared) + len(routes)),
+                "departures": [],
+            },
+        )
+        route["departures"].append(departure)
+
+    # "line" sorts by line and then destination, and is the mode to reach for
+    # when a stop serves several lines going to genuinely different places.
+    # It is also the only one that survives a terminus the config has never
+    # seen: the declared order below can't place a short-turn it doesn't
+    # know about, and two lines can share a terminus name — the S1 turns
+    # short at the same platform the S26 terminates on — which is enough to
+    # scatter a declared order across lines.
+    if _setting(board, conf, "order", "listed") == "line":
+        key = lambda route: (_natural_line(route["line"]), route["destination"])
+    else:
+        key = lambda route: (route["order"], route["line"])
+    ordered = sorted(routes.values(), key=key)
+
+    for route in ordered:
+        # Depth is per route and generous rather than exact: the panel drops
+        # the ones already out of walking reach, so a strip trimmed to
+        # exactly what it displays would empty from the left over the
+        # quarter-hour and end up showing nothing at all.
+        route["departures"] = route["departures"][: depth * 2]
+
+    return {
+        "name": board.get("name") or board.get("stop_name", ""),
+        "stop": board.get("stop_name", ""),
+        "walk_minutes": walk,
+        # How many route strips this board is worth on the ambient tile. A
+        # display decision, but it belongs to the board rather than the
+        # widget: a U-Bahn platform and the half-dozen bus routes sharing
+        # its street do not deserve the same number of rows.
+        "rows": _setting(board, conf, "rows", 3),
+        # How many countdowns each strip carries. Same argument — a train
+        # every four minutes says something with four numbers that a bus
+        # every twenty cannot.
+        "route_length": depth,
+        # How the panel picks which rows fit when there are more routes than
+        # rows. "soonest" for a stop whose lines are alternatives — five bus
+        # lines off one corner, where the one leaving in three minutes is
+        # worth a row and the same line in fifty is not. "listed" for a stop
+        # whose lines go to genuinely different places, where sorting by
+        # departure time silently drops a whole direction the moment its
+        # train is a few minutes further off.
+        "order": _setting(board, conf, "order", "listed"),
+        "routes": ordered,
+        # Kept flat as well. The panel reads only `routes` now, but the
+        # spoken answer picks the single soonest departure across every
+        # board, and grouping is the wrong shape for that question.
+        "departures": departures[:keep],
+        "warnings": warnings,
+        "updated_at": raw.get("realtimeDataUpdatedAt"),
+    }
+
+
+def merge_warnings(boards: list[dict[str, Any]]) -> list[str]:
+    """Warnings across every board, de-duplicated.
+
+    One disruption frequently lands on every stop it touches, and the tile has
+    room to say "2 notices", not to say the same notice twice.
+    """
+    warnings: list[str] = []
+    for board in boards:
+        for warning in board["warnings"]:
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings
+
+
 class Departures(Provider):
     slug = "departures"
     intents = [
@@ -183,205 +416,18 @@ class Departures(Provider):
             *(self._fetch_board(conf, board) for board in boards)
         )
 
-        # Warnings are collected across boards and de-duplicated: one disruption
-        # frequently lands on every stop it touches, and the tile has room to
-        # say "2 notices", not to say the same notice twice.
-        warnings: list[str] = []
-        for board in results:
-            for warning in board["warnings"]:
-                if warning not in warnings:
-                    warnings.append(warning)
-
-        return {"boards": results, "warnings": warnings}
+        return {"boards": list(results), "warnings": merge_warnings(list(results))}
 
     async def _fetch_board(
         self, conf: dict[str, Any], board: dict[str, Any]
     ) -> dict[str, Any]:
-        keep = board.get("results", conf.get("results", 12))
-
-        # Ask for far more than we intend to show. `results` is applied upstream,
-        # before any of our filtering, so a board that keeps one direction of one
-        # line was asking for twelve departures and rendering one — the rest of
-        # the tile went blank.
-        #
-        # Route grouping raises the floor again, and this is the subtle one: a
-        # cap that is generous for a board is stingy for a board's *routes*. A
-        # busy interchange runs seventy-odd departures an hour across seventeen
-        # headings, so twelve rows is one row per route and every strip on the
-        # tile shows a single number. The depth has to be there per route, which
-        # means fetching most of the hour. Over-fetching costs nothing on a 30s
-        # refresh and both the flat list and each strip are trimmed below.
-        params: dict[str, Any] = {
-            "duration": board.get("duration_minutes", conf.get("duration_minutes", 60)),
-            "results": max(keep * 10, 120),
-            "remarks": "true",
-        }
-
-        # THE GOTCHA: these are opt-*out* flags that all default to true.
-        # Passing tram=true alone does nothing — every other product is still
-        # true and a "tram" board quietly fills with buses. Each unwanted
-        # product has to be named false explicitly.
-        wanted = {product.lower() for product in board.get("products") or []}
-        for product in ALL_PRODUCTS:
-            params[product] = "true" if (not wanted or product in wanted) else "false"
-
         response = await self.http.get(
             f"{conf['api_base'].rstrip('/')}/stops/{board['stop_id']}/departures",
-            params=params,
+            params=board_params(board, conf),
         )
         response.raise_for_status()
-        raw = response.json()
+        return shape_board(response.json(), board, conf)
 
-        now = datetime.now(timezone.utc)
-        # The one threshold: leave now and you are on the platform in this many
-        # minutes. Anything sooner is gone. There is no grace window — a margin
-        # that quietly redefines "too late" makes the board disagree with the
-        # walk it prints in its own header.
-        walk = board.get("walk_minutes", conf.get("walk_minutes", 4))
-
-        only_lines = {line.upper() for line in board.get("lines") or []}
-        include = board.get("directions") or []
-        exclude = board.get("exclude_directions") or []
-
-        departures: list[dict[str, Any]] = []
-        for item in raw.get("departures", []):
-            line = (item.get("line") or {}).get("name") or "?"
-            if only_lines and line.upper() not in only_lines:
-                continue
-            if not _direction_allowed(item.get("direction") or "", include, exclude):
-                continue
-
-            when = item.get("when")
-            planned = item.get("plannedWhen")
-            cancelled = bool(item.get("cancelled"))
-            minutes = _minutes_until(when or planned, now)
-
-            departures.append(
-                {
-                    "trip_id": item.get("tripId"),
-                    "line": line,
-                    "product": (item.get("line") or {}).get("product"),
-                    "direction": item.get("direction") or "",
-                    # The same heading, cut to wall length. Carried per
-                    # departure as well as per route so the expanded list and
-                    # the spoken answer read the same as the tile does.
-                    "destination": _destination(item.get("direction") or ""),
-                    # Absolute times: the panel formats and counts down from
-                    # these, so it can stop counting when it goes offline.
-                    "when": when,
-                    "planned": planned,
-                    # HAFAS reports delay in seconds; minutes is what a person
-                    # reads off a wall.
-                    "delay_minutes": round((item.get("delay") or 0) / 60),
-                    "cancelled": cancelled,
-                    "minutes": minutes,
-                    # Only a hint for the voice answer. The panel recomputes it
-                    # every second from `when`, because this one was true when
-                    # the Pi fetched and stops being true while the tile sits
-                    # on the wall.
-                    "catchable": (not cancelled) and minutes is not None and minutes >= walk,
-                    "platform": item.get("platform") or item.get("plannedPlatform"),
-                }
-            )
-
-        # Warnings only. Every stop carries permanent "hint" remarks (lift out
-        # of service, ticket info) that would drown the real disruptions.
-        #
-        # Unescaped because BVG's remark text arrives HTML-escaped and lands in
-        # a text node, so the panel was showing literal "&#60; &#62;" mid
-        # sentence where the notice meant an arrow.
-        warnings: list[str] = []
-        for item in raw.get("departures", []):
-            for remark in item.get("remarks") or []:
-                if remark.get("type") == "warning":
-                    text = html.unescape(
-                        remark.get("text") or remark.get("summary") or ""
-                    ).strip()
-                    if text and text not in warnings:
-                        warnings.append(text)
-
-        # One row per line-and-heading. The panel decides which rows fit and
-        # re-decides every tick, so the order here only has to be STABLE: the
-        # stop reports departures by time, and grouping them in arrival order
-        # would reshuffle the board every time a bus ran early.
-        #
-        # The groups table is the declared order, and it is ordered on purpose —
-        # TOML preserves key order, so the sequence you write the headings in is
-        # the sequence they sit in on the wall. Anything ungrouped follows, in
-        # the order the stop first mentioned it.
-        groups: dict[str, list[str]] = board.get("groups") or {}
-        declared = {label: index for index, label in enumerate(groups)}
-        depth = board.get("route_length", conf.get("route_length", 4))
-
-        routes: dict[tuple[str, str], dict[str, Any]] = {}
-        for departure in departures:
-            destination = (
-                _group_label(departure["line"], departure["direction"], groups)
-                or departure["destination"]
-            )
-            route = routes.setdefault(
-                (departure["line"], destination),
-                {
-                    "line": departure["line"],
-                    "product": departure["product"],
-                    "destination": destination,
-                    # Position in the declared order; ungrouped routes sort
-                    # after every declared one, by when they were first seen.
-                    "order": declared.get(destination, len(declared) + len(routes)),
-                    "departures": [],
-                },
-            )
-            route["departures"].append(departure)
-
-        # "line" sorts by line and then destination, and is the mode to reach for
-        # when a stop serves several lines going to genuinely different places.
-        # It is also the only one that survives a terminus the config has never
-        # seen: the declared order below can't place a short-turn it doesn't
-        # know about, and two lines can share a terminus name — the S1 turns
-        # short at the same platform the S26 terminates on — which is enough to
-        # scatter a declared order across lines.
-        if board.get("order", conf.get("order", "listed")) == "line":
-            key = lambda route: (_natural_line(route["line"]), route["destination"])
-        else:
-            key = lambda route: (route["order"], route["line"])
-        ordered = sorted(routes.values(), key=key)
-
-        for route in ordered:
-            # Depth is per route and generous rather than exact: the panel drops
-            # the ones already out of walking reach, so a strip trimmed to
-            # exactly what it displays would empty from the left over the
-            # quarter-hour and end up showing nothing at all.
-            route["departures"] = route["departures"][: depth * 2]
-
-        return {
-            "name": board.get("name") or board.get("stop_name", ""),
-            "stop": board.get("stop_name", ""),
-            "walk_minutes": walk,
-            # How many route strips this board is worth on the ambient tile. A
-            # display decision, but it belongs to the board rather than the
-            # widget: a U-Bahn platform and the half-dozen bus routes sharing
-            # its street do not deserve the same number of rows.
-            "rows": board.get("rows", conf.get("rows", 3)),
-            # How many countdowns each strip carries. Same argument — a train
-            # every four minutes says something with four numbers that a bus
-            # every twenty cannot.
-            "route_length": depth,
-            # How the panel picks which rows fit when there are more routes than
-            # rows. "soonest" for a stop whose lines are alternatives — five bus
-            # lines off one corner, where the one leaving in three minutes is
-            # worth a row and the same line in fifty is not. "listed" for a stop
-            # whose lines go to genuinely different places, where sorting by
-            # departure time silently drops a whole direction the moment its
-            # train is a few minutes further off.
-            "order": board.get("order", conf.get("order", "listed")),
-            "routes": ordered,
-            # Kept flat as well. The panel reads only `routes` now, but the
-            # spoken answer picks the single soonest departure across every
-            # board, and grouping is the wrong shape for that question.
-            "departures": departures[:keep],
-            "warnings": warnings,
-            "updated_at": raw.get("realtimeDataUpdatedAt"),
-        }
 
     async def handle_intent(
         self, utterance: str, slots: dict[str, Any], speaker: str | None

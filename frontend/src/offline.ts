@@ -54,17 +54,7 @@ export async function loadState(): Promise<PanelState | null> {
   }
 }
 
-/**
- * Has this slice outlived its usefulness?
- *
- * This is the honesty rule. `useful_for: 0` means never expires (local clock,
- * a shopping list). Everything else goes quiet rather than showing a number
- * that is no longer true — most sharply the departure board, where a countdown
- * still ticking down on unrefreshable data is actively wrong. A wall display
- * that lies about your tram is worse than one that admits it doesn't know.
- */
-export function isExpired(fetchedAt: number | null, usefulFor: number, now: number): boolean {
-  if (usefulFor <= 0) return false
-  if (fetchedAt === null) return true
-  return now / 1000 - fetchedAt > usefulFor
-}
+// The rule itself lives in expiry.ts — it is three lines of arithmetic with
+// nothing to do with IndexedDB, and the public dashboard needs it without
+// wanting a database. Re-exported here so its import sites do not move.
+export { isExpired } from './expiry'

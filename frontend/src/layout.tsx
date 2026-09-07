@@ -14,6 +14,7 @@ import { act, config, connection, expanded, now, state } from './state'
 import { isExpired } from './offline'
 import { widgets, bySlug } from './widgets'
 import type { Slice } from './types'
+import './styles/interior.css'
 import './layout.css'
 
 const DEFAULT_IDLE_RETURN = 60

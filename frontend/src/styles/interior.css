@@ -1,0 +1,80 @@
+/* The vocabulary the widget interiors are written in.
+
+   Split out of layout.css because layout.css is the wall's 4x3 grid — one
+   screen, one size, deliberately not responsive — while these are the classes
+   every widget's markup actually uses. The public dashboard needs the second
+   without the first: same typographic system, its own arrangement. */
+
+.hero {
+  font-size: var(--t-hero);
+  font-weight: 600;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.readout {
+  font-size: var(--t-readout);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.body {
+  font-size: var(--t-body);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+}
+
+.spread {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-height: 0;
+}
+
+.fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.muted {
+  color: var(--ink-dim);
+}
+
+.arc {
+  color: var(--arc);
+}
+
+.gold {
+  color: var(--gold);
+}
+
+.alert {
+  color: var(--alert);
+}
+
+/* An empty or failed tile still says something specific. "No data" with a
+   reason beats a blank rectangle that could mean anything. */
+.void {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--slate);
+  font-family: var(--face-mono);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  text-align: center;
+}
