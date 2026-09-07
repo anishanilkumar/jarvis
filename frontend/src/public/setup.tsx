@@ -25,9 +25,32 @@ interface Hit {
 
 const DEBOUNCE_MS = 250
 
+/** Why a lookup failed, to the extent we actually know.
+ *
+ *  'upstream'  the server reached the address service and it did not answer
+ *  'throttled' we asked too fast; ours to fix, not theirs
+ *  'unknown'   the request never got an answer at all — could be anything,
+ *              most likely the reader's own connection
+ */
+export type Failure = 'upstream' | 'throttled' | 'unknown'
+
+export class LookupError extends Error {
+  constructor(readonly why: Failure) {
+    super(why)
+  }
+}
+
 export async function lookup(query: string): Promise<Hit[]> {
-  const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
-  if (!response.ok) throw new Error(String(response.status))
+  let response: Response
+  try {
+    response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
+  } catch {
+    // fetch itself rejected: no response, so nothing is known about the far end.
+    throw new LookupError('unknown')
+  }
+  if (response.status === 429) throw new LookupError('throttled')
+  if (response.status === 502) throw new LookupError('upstream')
+  if (!response.ok) throw new LookupError('unknown')
   const body = await response.json()
   return body.results as Hit[]
 }
@@ -65,7 +88,7 @@ export function Setup({ initial = '' }: { initial?: string }) {
   const [query, setQuery] = useState(initial)
   const [hits, setHits] = useState<Hit[]>([])
   const [cursor, setCursor] = useState(0)
-  const [status, setStatus] = useState<'idle' | 'searching' | 'empty' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'searching' | 'empty' | Failure>('idle')
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => input.current?.focus(), [])
@@ -87,9 +110,9 @@ export function Setup({ initial = '' }: { initial?: string }) {
         setHits(found)
         setCursor(0)
         setStatus(found.length ? 'idle' : 'empty')
-      } catch {
+      } catch (error) {
         setHits([])
-        setStatus('error')
+        setStatus(error instanceof LookupError ? error.why : 'unknown')
       }
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
@@ -134,16 +157,22 @@ export function Setup({ initial = '' }: { initial?: string }) {
         {status === 'searching' && <p class="setup-note">Looking…</p>}
         {status === 'empty' && (
           <p class="setup-note">
-            Nothing in Berlin matches that. This dashboard only covers Berlin for
-            now, so a Brandenburg address will not come up here.
+            Nothing in Berlin matches that. Berlin only, for now.
           </p>
         )}
-        {status === 'error' && (
-          <p class="setup-note">
-            The address lookup is not answering. It runs on the same service as
-            the departures, so this usually means BVG is down rather than
-            anything here — worth trying again in a few minutes.
-          </p>
+        {/* Each of these says what was observed and stops there. The earlier
+            version of this message named BVG and told the reader the outage was
+            almost certainly not our fault — a cause the page had not
+            established, since the catch discarded the status code before
+            guessing at it, and an excuse nobody waiting for a tram asked for. */}
+        {status === 'upstream' && (
+          <p class="setup-note">The address service isn't answering. Try again in a few minutes.</p>
+        )}
+        {status === 'throttled' && (
+          <p class="setup-note">Too many lookups just now. Give it a moment.</p>
+        )}
+        {status === 'unknown' && (
+          <p class="setup-note">Couldn't reach the address lookup.</p>
         )}
 
         {hits.length > 0 && (
