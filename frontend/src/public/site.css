@@ -110,10 +110,15 @@ body {
 /* ---- What a wall-sized tile assumes and a phone-sized one cannot ------- */
 
 /* The wall's departures tile has a fixed height from the grid, so each board
-   takes a flex-basis of 0 and they share the space by weight. Here the card is
-   as tall as its contents: there is no free space to distribute, and a definite
-   basis of 0 with min-height:0 collapses every board to nothing inside an
-   overflow:hidden parent — an empty bezel where the departures should be. */
+   takes a flex-basis of 0 and they share the space by weight. On a phone the
+   card is as tall as its contents instead: there is no free space to
+   distribute, and a definite basis of 0 with min-height:0 collapses every board
+   to nothing inside an overflow:hidden parent — an empty bezel where the
+   departures should be.
+
+   The desktop layout below gives the tile a real height again and puts this
+   back, because proportional sizing is the right answer whenever there is space
+   to proportion. */
 .site .dep-board {
   flex: 0 0 auto;
   min-height: auto;
@@ -126,4 +131,132 @@ body {
 @media (max-width: 24rem) {
   .site .route { grid-template-columns: 2.5rem minmax(0, 1fr) auto; gap: 0.5rem; }
   .site .route-times { gap: 0.5rem; }
+}
+
+
+/* ---- Desktop: one screen, no scrolling -------------------------------- */
+
+/* The height guard matters as much as the width one. A wide but short window —
+   a laptop with the browser at half height — cannot fit this, and clipping
+   departures off the bottom of an overflow:hidden box would hide services
+   without saying so. Under 40rem tall it stays a scrolling column, which is
+   honest and still readable. */
+@media (min-width: 64rem) and (min-height: 40rem) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .site {
+    /* Full bleed. There is no measure to protect here: the long text is one
+       line of footer, and the tiles are numbers that benefit from the room. */
+    max-width: none;
+    height: 100dvh;
+    padding: var(--gap) calc(var(--gap) * 1.5);
+  }
+
+  .site-grid {
+    /* The one tile you act on within seconds gets the height and most of the
+       width; the two you read gets the column beside it. Same hierarchy as the
+       wall, which earned it. */
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .site-grid > [data-slug='departures'] {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+  .site-grid > [data-slug='rain'] {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .site-grid > [data-slug='weather'] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  /* Close to the wall's behaviour — the boards have a height to share and take
+     it in proportion to the rows they carry — but with a floor the wall does
+     not need.
+     *
+     * The wall runs one known screen with a hand-tuned `rows`, so its boards can
+     * take a flex-basis of 0 and shrink freely: it is known in advance that they
+     * fit. Here neither is true. The viewport is whatever the reader has, and
+     * the row count depends on the address — three quiet stops in Schöneberg is
+     * twelve rows, three interchanges at Alexanderplatz is fifteen, and that one
+     * needs about 1000px of window to lay out at this density. Measured on a
+     * 1400x700 window, the free-shrinking version silently swallowed a row: the
+     * board still had a scrollbar-free box, and a tram had simply stopped being
+     * listed.
+     *
+     * So the boards grow into spare height but never shrink below their
+     * contents, and anything that will not fit overflows into the tile, which
+     * scrolls. A scrollbar inside one tile on a short window is a fair price;
+     * a departure that quietly vanishes is not. */
+  .site .dep-board {
+    flex: 1 1 auto;
+    min-height: min-content;
+  }
+  .site .route-list {
+    justify-content: space-evenly;
+    min-height: min-content;
+  }
+  .site .dep-boards {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  /* Settings floats rather than pushing. As a flex child it would steal height
+     from the grid and force exactly the scrollbar this layout exists to avoid.
+     The huge spread on the shadow is the scrim — no extra element, and it dims
+     the dashboard rather than hiding it. */
+  .settings {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    width: min(46rem, 92vw);
+    max-height: 86vh;
+    overflow-y: auto;
+    border: var(--rule) solid var(--engrave);
+    box-shadow: 0 0 0 100vmax rgba(6, 9, 14, 0.72);
+  }
+}
+
+/* Shorter desktop windows: same layout, tighter rows.
+ *
+ * The row's height is set by the lead countdown and the padding around it, both
+ * sized for a wall read across a room. On a laptop at arm's length there is
+ * room to take some of that back, and every few pixels per row is another
+ * departure that fits without the tile needing to scroll. Same compaction the
+ * wall applies to a four-board panel, for the same reason.
+ *
+ * Measured on a 1400x700 window against Alexanderplatz — the worst case in the
+ * city, three interchanges and fifteen rows — this moves three of the five
+ * overflowing rows into view.
+ *
+ * The ceiling is 62rem rather than the more obvious 56rem because the worst
+ * case needs about 1000px at full density, and a tier ending below that
+ * inverts: a 900px window rendered LOOSER than a 700px one and so pushed a row
+ * out of view that the shorter window had comfortably shown. The cost of the
+ * higher ceiling is small, because the boards grow into spare height and
+ * `space-evenly` hands the reclaimed padding straight back as row spacing. */
+@media (min-width: 64rem) and (min-height: 40rem) and (max-height: 62rem) {
+  .site .dep-board { gap: 0.25rem; }
+  .site .route {
+    padding: 0.125rem 0;
+    gap: 0.625rem;
+  }
+  .site .route-list { gap: 0.125rem; }
+  .site .rt[data-lead='true'] {
+    font-size: 1.5rem;
+    min-width: 2.25rem;
+  }
+  .site .route-times { gap: 0.5rem; }
+  .site .dep-board-head { padding-bottom: 0.25rem; }
 }

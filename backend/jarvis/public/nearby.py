@@ -23,11 +23,33 @@ from jarvis.providers.departures import board_params, merge_warnings, shape_boar
 #: rest of the name is left exactly as reported: unlike a destination, a stop
 #: name earns its prefixes — "S+U Yorckstr." tells you which platforms are
 #: there, and shortening it would cost the reader that.
-_CITY_SUFFIX = re.compile(r"\s*\(Berlin\)\s*$")
+#: Not anchored to the end: the API writes "U Alexanderplatz (Berlin) [Tram]",
+#: so a $-anchored version left the city name sitting in the middle of the
+#: heading with the mode after it.
+_CITY = re.compile(r"\s*\(Berlin\)\s*")
+
+#: The entrance a stop id belongs to, as HAFAS spells it: "S+U Alexanderplatz
+#: Bhf/Dircksenstr." is one set of platforms at the station "S+U Alexanderplatz
+#: Bhf", and the station itself is listed separately a few metres further on.
+#: Both report the same lines going the same places, so a board for each spends
+#: a third of the tile saying everything twice.
+_ENTRANCE = re.compile(r"/[^/]*$")
 
 
 def clean_stop_name(name: str) -> str:
-    return _CITY_SUFFIX.sub("", name).strip()
+    return " ".join(_CITY.sub(" ", name).split())
+
+
+def _same_place(name: str) -> str:
+    """The key two entrances of one station agree on.
+
+    Only the trailing "/<entrance>" is dropped, and deliberately nothing else.
+    Stripping the bracketed qualifiers too would fold "U Alexanderplatz [Tram]"
+    into "[Bus]" — plausible at an interchange, and wrong the moment it reaches
+    "S+U Yorckstr." and "S+U Yorckstr. (Großgörschenstr.)", which share a name,
+    sit four hundred metres apart, and are two different walks.
+    """
+    return _ENTRANCE.sub("", name).casefold().strip()
 
 
 async def stops_near(
@@ -63,12 +85,14 @@ async def stops_near(
     for stop in response.json():
         if not isinstance(stop, dict) or not stop.get("id") or not stop.get("name"):
             continue
-        # One stop, one board. A big interchange reports its halves separately
-        # and they would otherwise take two of the three rows on the page.
-        name = stop["name"]
-        if name in seen:
+        # One place, one board. A big interchange reports each entrance and
+        # each mode as its own stop — Alexanderplatz answers with nine inside
+        # 250m — and without this the first two boards were the same station
+        # under two names, listing the same four routes at the same times.
+        key = _same_place(clean_stop_name(stop["name"]))
+        if key in seen:
             continue
-        seen.add(name)
+        seen.add(key)
         stops.append(stop)
         if len(stops) >= count:
             break
