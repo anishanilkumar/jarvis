@@ -336,15 +336,20 @@ function FeedStatus({
 }) {
   const state = feedState(slice, expired, offline)
 
-  // Offline names the Pi rather than BVG. With the Pi unreachable, whatever we
-  // last heard about its upstream is itself stale, so saying anything about the
-  // feed would be guessing — and the palette has already desaturated the whole
-  // panel, which is the standing signal that this is the link and not the data.
+  // Offline names the link rather than BVG. With the server unreachable,
+  // whatever we last heard about its upstream is itself stale, so saying
+  // anything about the feed would be guessing — and the palette has already
+  // desaturated the whole panel, which is the standing signal that this is the
+  // link and not the data.
+  //
+  // Worded without naming the Pi, because this component also draws on the
+  // public dashboard, where "jarvis" means nothing to the reader and the broken
+  // link is far more likely to be their own phone's.
   if (state === 'offline') {
     return (
       <span class="label dep-feed" data-state="offline">
         <span class="dep-dot" />
-        no link to jarvis · {since(slice.fetched_at, nowMs)} · times are scheduled
+        no connection · {since(slice.fetched_at, nowMs)} · times are scheduled
       </span>
     )
   }

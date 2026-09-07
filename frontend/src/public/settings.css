@@ -1,0 +1,77 @@
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: var(--pad);
+  background: var(--panel-lit);
+}
+
+.settings-head { padding-bottom: 0.75rem; border-bottom: var(--rule) solid var(--engrave); }
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+
+.settings-hint {
+  max-width: 26rem;
+  font-size: var(--t-label);
+  line-height: 1.45;
+  color: var(--slate);
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-control input[type='range'] { width: min(14rem, 45vw); accent-color: var(--ink); }
+
+.settings-value {
+  min-width: 3ch;
+  font-family: var(--face-mono);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+
+.settings button {
+  padding: 0.5rem 0.875rem;
+  border: var(--rule) solid var(--engrave);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-label);
+  cursor: pointer;
+}
+
+.settings button:hover { background: var(--engrave); }
+.settings-close { border-color: transparent !important; }
+
+.settings-share { flex: 1 1 18rem; min-width: 0; }
+
+.settings-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.5rem 0.625rem;
+  border: var(--rule) solid var(--engrave);
+  border-radius: 2px;
+  background: var(--ground);
+  color: var(--ink-dim);
+  font-family: var(--face-mono);
+  font-size: var(--t-min);
+}
+
+.settings-place { padding-top: 1rem; border-top: var(--rule) solid var(--engrave); }

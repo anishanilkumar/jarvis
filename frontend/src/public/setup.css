@@ -1,0 +1,81 @@
+.setup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  padding: var(--gap);
+}
+
+.setup-card { width: min(34rem, 100%); }
+
+.setup-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--t-major);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.setup-blurb {
+  margin: 0 0 1.5rem;
+  max-width: 30rem;
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--slate);
+}
+
+.setup-input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: var(--rule) solid var(--engrave);
+  border-radius: 2px;
+  background: var(--panel-lit);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-readout);
+}
+
+.setup-input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.setup-note {
+  margin: 0.75rem 0 0;
+  font-size: var(--t-label);
+  color: var(--slate);
+}
+
+.setup-hits {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  border: var(--rule) solid var(--engrave);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.setup-hit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-bottom: var(--rule) solid var(--engrave);
+  background: var(--panel-lit);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.setup-hits li:last-child .setup-hit { border-bottom: 0; }
+.setup-hit[data-active] { background: var(--engrave); }
+.setup-hit-name { font-size: var(--t-body); }
+.setup-hit-where {
+  flex: none;
+  font-size: var(--t-label);
+  color: var(--slate);
+}

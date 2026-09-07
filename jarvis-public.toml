@@ -1,0 +1,88 @@
+# Jarvis, public edition — the config for abfahrt.anishsheela.com.
+#
+# Unlike jarvis.toml this file is COMMITTED, because it holds no secrets and no
+# home address: the public service is stateless and keyless, and the visitor's
+# own location lives in their browser, never here. Read at startup by
+# backend/jarvis/config.py, exactly like the wall's config, so tuning any of
+# these is a service restart rather than a code change.
+#
+#   JARVIS_CONFIG=/path/to/jarvis-public.toml uvicorn jarvis.public.app:app
+
+[general]
+timezone = "Europe/Berlin"
+
+# The wall forces IPv4 because the Pi has IPv6 disabled at the kernel and
+# v6.bvg.transport.rest publishes an AAAA record. The VPS has working IPv6, so
+# there is nothing to route around here.
+force_ipv4 = false
+
+[public]
+# Berlin, generously boxed. Enforced on every request, not only in the address
+# picker: the URL parameters accept coordinates directly, and without this the
+# service is a free worldwide proxy for someone else's API quota.
+#
+# The VBB region extends well into Brandenburg, so the geocoder happily returns
+# Oranienburg and Borkwalde for a Berlin-sounding street. This is the line that
+# makes "within Berlin for now" true.
+bbox = { south = 52.33, north = 52.68, west = 13.08, east = 13.77 }
+
+# How many stops around the address get a board, and how far to look. Three is
+# the number that covers a Berlin address without turning the page into a
+# timetable: from one real Berlin address it finds the U-Bahn, the bus stop
+# on the corner and the S-Bahn, which is three of the four boards that were
+# hand-written into jarvis.toml.
+nearby_stops = 3
+nearby_radius_m = 900
+
+# Straight-line metres per minute on foot. The stop's reported distance is
+# as-the-crow-flies, so this is already optimistic; the walk is rounded UP for
+# the same reason. A board that claims you can make a tram you cannot is worse
+# than one that drops it.
+walk_metres_per_minute = 80
+
+# Server-side cache lifetimes, seconds. Coordinates are rounded before they
+# become a cache key, so a whole street shares one upstream call.
+cache_geocode_seconds = 3600
+cache_weather_seconds = 600
+cache_departures_seconds = 30
+
+# Per-IP token bucket. Generous for a person, useless for a scraper.
+rate_limit_per_minute = 60
+# Ceiling on requests in flight upstream at once, across all visitors. Past
+# this the service sheds load itself rather than discovering BVG's opinion of
+# it the hard way.
+max_concurrent_upstream = 8
+
+# ---------------------------------------------------------------------------
+# Weather — Open-Meteo, no API key.
+#
+# The thresholds here are DEFAULTS the page starts from, not the answer. The
+# public API returns the forecast facts and the browser decides, because the
+# response is cached on rounded coordinates and shared between everyone near
+# that rounding — so it cannot carry one visitor's jacket temperature.
+# ---------------------------------------------------------------------------
+[weather]
+api_base = "https://api.open-meteo.com/v1/forecast"
+forecast_days = 7
+rain_likely_threshold = 40
+jacket_below = 14
+advice_min_hours = 6
+
+# ---------------------------------------------------------------------------
+# BVG departures. No [[departures.boards]] here — there is no configured stop
+# to write one for. The boards are built per request from whatever is near the
+# visitor's address, and these are the defaults each of them inherits.
+# ---------------------------------------------------------------------------
+[departures]
+api_base = "https://v6.bvg.transport.rest"
+# Smaller than the wall's. The wall over-fetches because it refreshes every 30s
+# behind one cache on one Pi; here every uncached visitor pays for it three
+# stops over, so the window is shorter and the ask is smaller.
+duration_minutes = 45
+results = 8
+rows = 4
+route_length = 3
+# The only ordering that survives a stop nobody configured: it sorts by line and
+# then destination, reading line numbers the way a person does, and can place a
+# terminus that no groups table has ever named — which is every terminus here.
+order = "line"

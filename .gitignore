@@ -65,6 +65,7 @@ env/
 # ---------------------------------------------------------------------------
 node_modules/
 dist/
+dist-public/
 .vite/
 *.tsbuildinfo
 npm-debug.log*

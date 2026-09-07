@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:site": "tsc --noEmit && vite build --config vite.public.config.ts",
+    "dev:site": "vite --config vite.public.config.ts"
   },
   "dependencies": {
     "@preact/signals": "^2.11.0",

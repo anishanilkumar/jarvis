@@ -1,0 +1,118 @@
+/* The public dashboard's layout.
+ *
+ * tokens.css carries the type scale, the palette and the .instrument bezel;
+ * interior.css carries the classes the widget markup is written in. This file
+ * carries everything those two assume about a wall and that a phone does not
+ * share. */
+
+/* tokens.css derives the root font size from the viewport
+   (max(8px, min(0.8333vw, 1.3333vh))). That is DPR-proofing for one bolted
+   screen; on a 375px phone it pins to the 8px floor and renders the whole page
+   at half size. */
+html {
+  font-size: 100%;
+}
+
+html,
+body {
+  height: auto;
+  overflow: visible; /* a wall never scrolls; a phone always does */
+}
+
+body {
+  cursor: auto;      /* the wall hides the pointer — there isn't one */
+  user-select: auto;
+}
+
+/* The wall's scale was tuned to be read across a room. At arm's length the same
+   numbers are absurd, so the tokens are rescaled once, here, and every widget
+   interior follows without a single component being edited. */
+:root {
+  --t-hero: clamp(3.25rem, 17vw, 5.5rem);
+  --t-major: clamp(1.75rem, 8vw, 2.75rem);
+  --t-readout: clamp(1.375rem, 5.5vw, 1.875rem);
+  --t-headline: 1.25rem;
+  --t-body: 1rem;
+  /* tokens.css sets a 16px floor on the grounds that nothing smaller is legible
+     at 2m. This is not 2m. */
+  --t-label: 0.8125rem;
+  --t-min: 0.75rem;
+  --gap: 1rem;
+  --pad: 1.25rem;
+  --bracket: 1rem;
+}
+
+.site {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: var(--gap);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.site-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.site-where {
+  padding-bottom: 0.625rem;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+
+.site-gear {
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  cursor: pointer;
+}
+
+.site-gear:hover { color: var(--ink); }
+
+.site-grid {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 44rem) {
+  .site-grid { grid-template-columns: 1fr 1fr; }
+  /* Departures is the only tile you act on within seconds. It gets the width. */
+  .site-grid > [data-slug='departures'] { grid-column: 1 / -1; }
+}
+
+.site-foot {
+  padding-top: 0.75rem;
+  border-top: var(--rule) solid var(--engrave);
+  color: var(--slate);
+}
+
+.site-foot a { color: var(--ink-dim); }
+
+/* ---- What a wall-sized tile assumes and a phone-sized one cannot ------- */
+
+/* The wall's departures tile has a fixed height from the grid, so each board
+   takes a flex-basis of 0 and they share the space by weight. Here the card is
+   as tall as its contents: there is no free space to distribute, and a definite
+   basis of 0 with min-height:0 collapses every board to nothing inside an
+   overflow:hidden parent — an empty bezel where the departures should be. */
+.site .dep-board {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.site .route-list { justify-content: flex-start; }
+
+/* Route strips at 320-375px. The line column and the gaps are what give first,
+   and the destination already ellipsises. */
+@media (max-width: 24rem) {
+  .site .route { grid-template-columns: 2.5rem minmax(0, 1fr) auto; gap: 0.5rem; }
+  .site .route-times { gap: 0.5rem; }
+}
