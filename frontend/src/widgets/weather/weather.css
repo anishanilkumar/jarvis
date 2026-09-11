@@ -26,6 +26,40 @@
 .wx-foot {
   border-top: var(--rule) solid var(--engrave);
   padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Both timestamps read the same, because the times themselves are equally
+   worth knowing. */
+.wx-sun .stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--ink-dim);
+}
+
+/* The whole sunrise/sunset distinction, in two declarations. The marks are one
+   identical shape and the light is the difference: the sun coming up is lit,
+   the sun going down is not. It sits on the glyph rather than the stamp so the
+   two times stay equally readable — this says which end of the day it is, not
+   which half of the line matters. */
+.wx-sun [data-event='rise'] .wx-sun-glyph {
+  color: var(--ink);
+}
+.wx-sun [data-event='set'] .wx-sun-glyph {
+  color: var(--slate-dim);
+}
+
+/* Sized against the timestamp beside it rather than in pixels: the wall derives
+   its root font size from the viewport, so anything fixed here drifts out of
+   proportion with the text on every screen it was not measured on. */
+.wx-sun-glyph {
+  /* 22:20, the viewBox, so the mark neither stretches nor sits in slack. */
+  width: 2.2em;
+  height: 2em;
+  flex: none;
 }
 
 /* ---- Detail: the week ------------------------------------------------- */

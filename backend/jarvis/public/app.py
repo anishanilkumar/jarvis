@@ -37,6 +37,7 @@ from jarvis.providers.weather import (
     advice_facts,
     shape_weather,
 )
+from jarvis import sources
 from jarvis.public import geocode, nearby
 from jarvis.public.cache import TTLCache, round_coords
 from jarvis.public.limits import Bbox, RateLimiter, caller
@@ -69,6 +70,12 @@ class Service:
 
         self.bbox = Bbox(pub.get("bbox", {}))
         self.stop_count = pub.get("nearby_stops", 3)
+        # Deliberately more stops than boards. Which stops deserve one depends
+        # on the routes they actually run, and that is only knowable after
+        # fetching them; the surplus costs a few upstream calls per cache miss
+        # and buys the difference between a third board that repeats the first
+        # and a third board with the U-Bahn on it.
+        self.stop_candidates = pub.get("nearby_candidates", self.stop_count + 2)
         self.stop_radius = pub.get("nearby_radius_m", 900)
         self.metres_per_minute = float(pub.get("walk_metres_per_minute", 80))
         self.limiter = RateLimiter(pub.get("rate_limit_per_minute", 60))
@@ -79,10 +86,6 @@ class Service:
         self.departures_cache = TTLCache(pub.get("cache_departures_seconds", 30))
 
         self.http: httpx.AsyncClient = build_client(self.cfg)
-
-    @property
-    def transport_api(self) -> str:
-        return self.dep.get("api_base", "https://v6.bvg.transport.rest")
 
     @property
     def weather_api(self) -> str:
@@ -162,9 +165,28 @@ async def _upstream(coro: Any) -> Any:
         raise HTTPException(status_code=502, detail=f"Upstream unreachable: {reason}") from exc
 
 
+async def _cached(cache: TTLCache, key: Any, produce: Any) -> Any:
+    """Fresh if the upstreams are answering, last-good with its age if not.
+
+    The age is stamped into the body rather than dropped, because the browser
+    computes every countdown and every freeze from when it believes the data
+    was fetched. Handing it a twenty-minute-old board with no note would restart
+    countdowns that should already have frozen — the exact dishonesty the
+    freezing rule exists to prevent, reintroduced by the cache that was supposed
+    to help.
+    """
+    value, age = await cache.get(key, produce, stale_ok=True)
+    if age and isinstance(value, dict):
+        return {**value, "stale_seconds": int(age)}
+    return value
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "city": "Berlin"}
+    # Reports which upstreams are currently being tried, so a degraded service
+    # is visible from outside without reading the journal. Still "ok" while a
+    # source is tripped: that is the fallback working, not the service failing.
+    return {"ok": True, "city": "Berlin", "sources": sources.health()}
 
 
 @app.get("/api/geocode")
@@ -175,9 +197,7 @@ async def geocode_endpoint(
     key = " ".join(q.split()).casefold()
 
     async def produce() -> list[dict[str, Any]]:
-        hits = await _upstream(
-            geocode.search(service.http, service.transport_api, q)
-        )
+        _, hits = await _upstream(geocode.search(service.http, service.dep, q))
         found = []
         for hit in hits:
             if not geocode.looks_berlin(hit):
@@ -187,7 +207,12 @@ async def geocode_endpoint(
                 found.append(shaped)
         return found
 
-    return {"results": await service.geocode_cache.get(key, produce)}
+    # Served stale without comment, and only here: a street's coordinates do
+    # not move, so an hour-old geocode is not stale in any sense the reader
+    # cares about. Worth having at all because the picker going down with the
+    # board is what turns an outage into "this site does not work".
+    results, _ = await service.geocode_cache.get(key, produce, stale_ok=True)
+    return {"results": results}
 
 
 @app.get("/api/weather")
@@ -238,41 +263,53 @@ async def weather_endpoint(
             "rain_threshold": service.wx.get("rain_likely_threshold", 40),
         }
 
-    return await service.weather_cache.get(rounded, produce)
+    return await _cached(service.weather_cache, rounded, produce)
 
 
 @app.get("/api/departures")
 async def departures_endpoint(
-    request: Request, lat: float, lon: float
+    request: Request,
+    lat: float,
+    lon: float,
+    # Tokens an earlier response issued, each naming a stop or a direction the
+    # visitor has hidden. Opaque to the page; nearby.apply_hides reads them.
+    hide: list[str] = Query(default=[]),
 ) -> dict[str, Any]:
     _gate(request)
     _in_berlin(lat, lon)
     rounded = round_coords(lat, lon)
 
     async def produce() -> dict[str, Any]:
-        stops = await _upstream(
+        found_by, stops = await _upstream(
             nearby.stops_near(
                 service.http,
-                service.transport_api,
+                service.dep,
                 rounded[0],
                 rounded[1],
-                count=service.stop_count,
+                count=service.stop_candidates,
                 radius=service.stop_radius,
             )
         )
         if not stops:
             # Not an error. Berlin has addresses with no stop inside 900m, and
             # a page that says so is more useful than one that says "failed".
-            return {"boards": [], "warnings": [], "stops_found": 0}
+            return {"shaped": [], "warnings": [], "sources": []}
 
         return await _upstream(
-            nearby.departure_boards(
+            nearby.fetch_boards(
                 service.http,
-                service.transport_api,
                 stops,
                 service.dep,
                 metres_per_minute=service.metres_per_minute,
+                # Pinned: these ids came from one source and mean nothing to
+                # the other.
+                found_by=found_by,
             )
         )
 
-    return await service.departures_cache.get(rounded, produce)
+    # The cache holds every nearby stop's board and is shared by everyone near
+    # this rounding. Hides are one visitor's, so they are applied after it, per
+    # request — which keeps a hide from costing an upstream call, and keeps the
+    # cache from splitting into one entry per visitor's taste.
+    fetched = await _cached(service.departures_cache, rounded, produce)
+    return nearby.compose_view(fetched, service.dep, hide, limit=service.stop_count)

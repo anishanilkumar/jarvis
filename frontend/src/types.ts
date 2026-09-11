@@ -41,6 +41,16 @@ export interface WidgetProps<T = any> {
   offline?: boolean
   /** POST to /api/action/<slug>. Rejects when the Pi is unreachable. */
   act: (payload: Record<string, unknown>) => Promise<void>
+  /** Present only where the reader may prune what a widget shows: the public
+   *  site's opened departures tile. The wall passes nothing and draws no
+   *  controls — its boards are pruned in jarvis.toml. */
+  customise?: Customise
+}
+
+/** Hide, or bring back, something a widget shows, by a token the API issued. */
+export interface Customise {
+  hide: (token: string) => void
+  show: (...tokens: string[]) => void
 }
 
 export interface Widget {

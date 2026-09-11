@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from jarvis import sources
+
 #: "10245 Berlin-Friedrichshain, Boxhagener Str. 1", and the plainer
 #: "10117 Berlin, Unter den Linden 1". Both shapes appear; anything else is
 #: left alone.
@@ -69,21 +71,15 @@ def looks_berlin(hit: dict[str, Any]) -> bool:
 
 
 async def search(
-    http: httpx.AsyncClient, api_base: str, query: str, *, results: int = 8
-) -> list[dict[str, Any]]:
-    response = await http.get(
-        f"{api_base.rstrip('/')}/locations",
-        params={
-            "query": query,
-            "addresses": "true",
-            "poi": "true",
-            # Stops are excluded on purpose. The visitor is telling us where
-            # they live so we can find the stops ourselves; offering them a
-            # stop to live at makes the walking time meaningless.
-            "stops": "false",
-            "results": results,
-            "fuzzy": "true",
-        },
+    http: httpx.AsyncClient, conf: dict[str, Any], query: str, *, results: int = 8
+) -> tuple[str, list[dict[str, Any]]]:
+    """Address candidates, from whichever source answers.
+
+    Worth having a fallback for in its own right. Through the September outage
+    the picker went down with the board, so a first-time visitor could not even
+    set the page up — the failure was not "no departures today", it was "this
+    site does not work".
+    """
+    return await sources.attempt(
+        "locations", http=http, query=query, results=results, conf=conf
     )
-    response.raise_for_status()
-    return [hit for hit in response.json() if isinstance(hit, dict)]

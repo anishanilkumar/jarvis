@@ -52,6 +52,19 @@ no network at all. The cost is that `decide()` exists twice, in
 `providers/weather.py` and `frontend/src/public/advice.ts`, and the two must
 agree.
 
+**Where hides are applied — on the server, the other way round.** A visitor can
+hide a stop, or one direction of a line, from the opened departures tile. The
+jacket's argument would put that in the browser too, and there it breaks. The
+server looks at five stops, composes three boards, and keeps each route only at
+its nearest stop. Hide a stop after that and its slot sits empty instead of
+going to the next stop out. Its U7 also vanishes, even though the station beyond
+runs it too. So the cache holds every stop's shaped board, still keyed on
+rounded coordinates and shared. Composing runs per request with the visitor's
+`hide=` tokens, which is pure arithmetic over a warm cache. Trains hide by
+platform, not destination: the S1 northbound at Yorckstr. is three destinations
+and one platform. Buses report no platform and hide by destination. The API
+issues the tokens, the page never parses them, and shared links carry them.
+
 **Berlin only, and why that is enforced twice.** The address search is VBB's,
 which covers Brandenburg too — searching a Berlin street name returns
 Oranienburg and Borkwalde behind it. So results are filtered, *and* every

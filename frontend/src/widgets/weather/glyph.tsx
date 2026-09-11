@@ -119,3 +119,54 @@ function shape(icon: string, day: boolean) {
       return <circle cx="24" cy="24" r="10" stroke-dasharray="4 5" />
   }
 }
+
+/**
+ * Sunrise and sunset, as one mark each.
+ *
+ * The public dashboard's header used to carry these as a bare ↑ and ↓ beside
+ * the times, which only works if you already hold the convention — and a page
+ * anyone can open a link to cannot assume that. The first replacement kept an
+ * arrow and added a horizon under it, which was two marks arguing: at this
+ * size the arrow was the loudest thing in the glyph and it still said nothing
+ * a sun on a horizon does not.
+ *
+ * So: ONE mark, drawn identically for both ends of the day, and lit
+ * differently. Sunrise is bright and sunset is dim, which is the thing itself
+ * rather than a symbol for it — light arriving and light going. The strokes
+ * are currentColor, so the whole discrimination lives in one CSS declaration
+ * and the SVG has no idea which one it is.
+ *
+ * The grid is 22x20 rather than the 48 square above. SMALL, because this sits
+ * inline against a timestamp at a fraction of a tile glyph's size, and a
+ * 48-unit grid's 2.5 stroke lands under a pixel there and greys out. Halving
+ * the grid doubles the effective weight for free.
+ */
+export function SunEventGlyph({ event }: { event: 'rise' | 'set' }) {
+  return (
+    <svg
+      viewBox="0 0 22 20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class="wx-sun-glyph"
+      // Named, not hidden. The two marks are the same shape and differ only in
+      // brightness, so to a screen reader — and to anyone who cannot pick that
+      // difference up — this is the only thing saying which end of the day the
+      // time belongs to.
+      role="img"
+    >
+      <title>{event === 'rise' ? 'Sunrise' : 'Sunset'}</title>
+
+      {/* Half a sun standing on the ground. Three rays, not eight: at this size
+          each one is about two pixels long, and the ring of them the tile glyph
+          can afford closes up into a solid blob. */}
+      <path d="M1.5 16.5h19" />
+      <path d="M5.75 16.5a5.25 5.25 0 0 1 10.5 0" />
+      <path d="M11 8V5" />
+      <path d="M5.4 10.4 3.5 8.5" />
+      <path d="M16.6 10.4 18.5 8.5" />
+    </svg>
+  )
+}

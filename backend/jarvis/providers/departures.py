@@ -32,20 +32,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from jarvis import sources
 from jarvis.registry import Provider, Speech
-
-#: Every product the API knows. Needed in full because of the filtering gotcha
-#: below — you cannot select products by naming only the ones you want.
-ALL_PRODUCTS = (
-    "suburban",
-    "subway",
-    "tram",
-    "bus",
-    "ferry",
-    "express",
-    "regional",
-)
-
 
 def _minutes_until(when: str | None, now: datetime) -> int | None:
     if not when:
@@ -113,6 +101,59 @@ def _natural_line(name: str) -> tuple[tuple[int, Any], ...]:
     )
 
 
+#: What a mode is worth a row for, and the reason the U-Bahn is on the wall at
+#: all.
+#:
+#: Sorting a mixed stop purely by line name is quietly disastrous. U Kleistpark
+#: serves the U7 and five bus routes, and "106, 187, 204, M48" sorts ahead of
+#: "U7" on every reading of the name — so the four rows the tile has room for
+#: went to buses and the station's entire reason for existing never appeared.
+#: The stop is called U Kleistpark.
+#:
+#: U-Bahn and S-Bahn share a rank on purpose. Neither outranks the other as a
+#: mode: which one you want is a fact about where you are standing, so the
+#: nearer stop wins and two of them at one stop fall back to line order — S1,
+#: S2, S25, U7, which is how the platform signs read anyway.
+#:
+#: RE and RB sit BELOW them. A regional train is the rarest thing at a Berlin
+#: stop and missing one is expensive, which argues for the top row, but at a
+#: local station it is far more often passing through than going anywhere you
+#: were headed. Trams then buses: both stop on the street every few hundred
+#: metres, and the tram is the one that comes less often and goes further.
+_PRODUCT_RANK = {
+    "subway": 0,
+    "suburban": 0,
+    "express": 1,
+    "regional": 1,
+    "tram": 2,
+    "ferry": 3,
+    "bus": 4,
+}
+
+#: Anything the map has never heard of. Last, rather than first: an unknown
+#: product is not evidence of importance.
+_UNRANKED = max(_PRODUCT_RANK.values()) + 1
+
+
+def product_rank(product: str | None) -> int:
+    """Where a mode sorts against the other modes at the same stop."""
+    return _PRODUCT_RANK.get(product or "", _UNRANKED)
+
+
+def route_order(route: dict[str, Any]) -> tuple[Any, ...]:
+    """The order route strips sit in: mode, then line, then destination.
+
+    Public because the ordering has to be the same in two places — inside a
+    board here, and across the pooled board the public dashboard builds out of
+    several stops' routes. Two copies of this would drift.
+    """
+    return (
+        product_rank(route.get("product")),
+        _natural_line(route.get("line") or ""),
+        route.get("destination") or "",
+    )
+
+
 def _group_label(
     line: str, direction: str, groups: dict[str, list[str]]
 ) -> str | None:
@@ -173,39 +214,6 @@ def _setting(board: dict[str, Any], conf: dict[str, Any], key: str, default: Any
     no configured stops in the first place.
     """
     return board.get(key, conf.get(key, default))
-
-
-def board_params(board: dict[str, Any], conf: dict[str, Any] | None = None) -> dict[str, Any]:
-    """The query string for one board's /stops/<id>/departures request."""
-    conf = conf or {}
-    keep = _setting(board, conf, "results", 12)
-
-    # Ask for far more than we intend to show. `results` is applied upstream,
-    # before any of our filtering, so a board that keeps one direction of one
-    # line was asking for twelve departures and rendering one — the rest of
-    # the tile went blank.
-    #
-    # Route grouping raises the floor again, and this is the subtle one: a
-    # cap that is generous for a board is stingy for a board's *routes*. A
-    # busy interchange runs seventy-odd departures an hour across seventeen
-    # headings, so twelve rows is one row per route and every strip on the
-    # tile shows a single number. The depth has to be there per route, which
-    # means fetching most of the hour. Over-fetching costs nothing on a 30s
-    # refresh and both the flat list and each strip are trimmed below.
-    params: dict[str, Any] = {
-        "duration": _setting(board, conf, "duration_minutes", 60),
-        "results": max(keep * 10, 120),
-        "remarks": "true",
-    }
-
-    # THE GOTCHA: these are opt-*out* flags that all default to true.
-    # Passing tram=true alone does nothing — every other product is still
-    # true and a "tram" board quietly fills with buses. Each unwanted
-    # product has to be named false explicitly.
-    wanted = {product.lower() for product in board.get("products") or []}
-    for product in ALL_PRODUCTS:
-        params[product] = "true" if (not wanted or product in wanted) else "false"
-    return params
 
 
 def shape_board(
@@ -283,17 +291,11 @@ def shape_board(
 
     # Warnings only. Every stop carries permanent "hint" remarks (lift out
     # of service, ticket info) that would drown the real disruptions.
-    #
-    # Unescaped because BVG's remark text arrives HTML-escaped and lands in
-    # a text node, so the panel was showing literal "&#60; &#62;" mid
-    # sentence where the notice meant an arrow.
     warnings: list[str] = []
     for item in raw.get("departures", []):
         for remark in item.get("remarks") or []:
             if remark.get("type") == "warning":
-                text = html.unescape(
-                    remark.get("text") or remark.get("summary") or ""
-                ).strip()
+                text = _notice(remark.get("text") or remark.get("summary") or "")
                 if text and text not in warnings:
                     warnings.append(text)
 
@@ -330,15 +332,16 @@ def shape_board(
         )
         route["departures"].append(departure)
 
-    # "line" sorts by line and then destination, and is the mode to reach for
-    # when a stop serves several lines going to genuinely different places.
+    # "line" sorts by mode, then line, then destination, and is the ordering to
+    # reach for when a stop serves several lines going to genuinely different
+    # places.
     # It is also the only one that survives a terminus the config has never
     # seen: the declared order below can't place a short-turn it doesn't
     # know about, and two lines can share a terminus name — the S1 turns
     # short at the same platform the S26 terminates on — which is enough to
     # scatter a declared order across lines.
     if _setting(board, conf, "order", "listed") == "line":
-        key = lambda route: (_natural_line(route["line"]), route["destination"])
+        key = route_order
     else:
         key = lambda route: (route["order"], route["line"])
     ordered = sorted(routes.values(), key=key)
@@ -381,6 +384,37 @@ def shape_board(
     }
 
 
+#: A real HTML tag, which requires a letter after the "<". Deliberately not
+#: `<[^>]*>`: BVG writes "platform U8 <> intermediate level" and means an
+#: arrow, and a looser pattern eats it.
+_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
+
+#: The "read more" anchor BVG appends to longer notices, taken out whole rather
+#: than unwrapped. Every other tag keeps its text — a <b> around a station name
+#: still says the station — but a link label with no link left to follow is a
+#: stray "[MEHR/MORE]" at the end of a sentence that was already complete.
+_LINK = re.compile(r"<a\b[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
+
+
+def _notice(text: str) -> str:
+    """One disruption remark, as a sentence a person can read.
+
+    BVG sends these HTML-escaped, and unescaping is not optional: without it
+    the panel shows a literal "&#60;&#62;" mid sentence where the notice meant
+    an arrow. But the same escaping hides real markup — the longer notices
+    carry an <a> to the disruption page — and once unescaped that markup lands
+    in a text node and is displayed verbatim, tag and href and all.
+
+    So: unescape, then take the tags back out. The alternative — rendering the
+    notice as markup so the link stays a link — means handing upstream HTML
+    straight to the DOM of a public page, which is a far larger promise than
+    "the disruption is readable" needs anyone to make.
+    """
+    plain = _TAG.sub("", _LINK.sub("", html.unescape(text)))
+    # Removing an element mid-sentence leaves the spaces that surrounded it.
+    return re.sub(r"\s+", " ", plain).strip()
+
+
 def merge_warnings(boards: list[dict[str, Any]]) -> list[str]:
     """Warnings across every board, de-duplicated.
 
@@ -416,17 +450,25 @@ class Departures(Provider):
             *(self._fetch_board(conf, board) for board in boards)
         )
 
-        return {"boards": list(results), "warnings": merge_warnings(list(results))}
+        shaped = [board for _, board in results]
+        return {
+            "boards": shaped,
+            "warnings": merge_warnings(shaped),
+            # Which upstreams actually answered. The panel needs it because the
+            # fallback carries no disruption remarks, so an empty `warnings` on
+            # the primary means "nothing wrong" and on the fallback means
+            # "nobody told us" — two very different claims to make from one
+            # empty list.
+            "sources": sorted({name for name, _ in results}),
+        }
 
     async def _fetch_board(
         self, conf: dict[str, Any], board: dict[str, Any]
-    ) -> dict[str, Any]:
-        response = await self.http.get(
-            f"{conf['api_base'].rstrip('/')}/stops/{board['stop_id']}/departures",
-            params=board_params(board, conf),
+    ) -> tuple[str, dict[str, Any]]:
+        name, raw = await sources.attempt(
+            "departures", http=self.http, board=board, conf=conf
         )
-        response.raise_for_status()
-        return shape_board(response.json(), board, conf)
+        return name, shape_board(raw, board, conf)
 
 
     async def handle_intent(

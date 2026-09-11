@@ -23,13 +23,19 @@ export interface Place {
 export interface Prefs {
   jacketBelow: number
   rainThreshold: number
+  /**
+   * Stops and directions hidden from the departures tile, as tokens the API
+   * issued. Opaque here on purpose: what one means — a platform, a destination,
+   * a whole stop — is decided in one place, server-side, in nearby.apply_hides.
+   */
+  hides: string[]
 }
 
 const PLACE_KEY = 'jarvis.public.place'
 const PREFS_KEY = 'jarvis.public.prefs'
 
 /** Server-side defaults, replaced by the first weather response. */
-export const DEFAULT_PREFS: Prefs = { jacketBelow: 14, rainThreshold: 40 }
+export const DEFAULT_PREFS: Prefs = { jacketBelow: 14, rainThreshold: 40, hides: [] }
 
 export const place = signal<Place | null>(null)
 export const prefs = signal<Prefs>(DEFAULT_PREFS)
@@ -67,6 +73,17 @@ export function savePrefs(next: Prefs): void {
   write(PREFS_KEY, next)
 }
 
+export function hide(token: string): void {
+  const current = prefs.value
+  if (current.hides.includes(token)) return
+  savePrefs({ ...current, hides: [...current.hides, token] })
+}
+
+export function show(...tokens: string[]): void {
+  const current = prefs.value
+  savePrefs({ ...current, hides: current.hides.filter((token) => !tokens.includes(token)) })
+}
+
 export function forget(): void {
   place.value = null
   fromLink.value = false
@@ -90,6 +107,9 @@ export function shareUrl(): string {
     name: here.name,
     jacket: String(prefs.value.jacketBelow),
   })
+  // Repeated rather than joined: a token can contain almost anything a
+  // destination can, and the query string already knows how to escape that.
+  for (const token of prefs.value.hides) params.append('hide', token)
   return `${url.toString()}?${params.toString()}`
 }
 
@@ -106,6 +126,12 @@ export function boot(): { query: string | null } {
 
   const stored = read<Prefs>(PREFS_KEY)
   if (stored) prefs.value = { ...DEFAULT_PREFS, ...stored }
+  // Storage from before hides existed, or edited by hand into something else.
+  const hides = prefs.value.hides
+  prefs.value = {
+    ...prefs.value,
+    hides: Array.isArray(hides) ? hides.filter((token) => typeof token === 'string') : [],
+  }
 
   const jacket = Number(params.get('jacket'))
   if (Number.isFinite(jacket) && jacket !== 0) {
@@ -116,6 +142,10 @@ export function boot(): { query: string | null } {
   const lon = Number(params.get('lon'))
   if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0) {
     place.value = { lat, lon, name: params.get('name') || 'Berlin' }
+    // The link's hides, not this browser's. They are half of the view it was
+    // copied from, and the stored ones were chosen for a different address
+    // anyway. None in the link means none: that is what the sender saw.
+    prefs.value = { ...prefs.value, hides: params.getAll('hide') }
     fromLink.value = true
     return { query: null }
   }

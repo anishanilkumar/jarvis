@@ -107,6 +107,116 @@ body {
 
 .site-foot a { color: var(--ink-dim); }
 
+/* The mark sits on the text like a letter, not beside it like a button: the
+   footer is one line of credits and the source is one of them. */
+.site-source {
+  white-space: nowrap;
+}
+
+.site-source-mark {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.35em;
+  vertical-align: -0.15em;
+}
+
+/* ---- Opening a tile ---------------------------------------------------- */
+
+/* Every tile has a second view behind it and, until this, nothing on the page
+   said so: the departures tile would report "2 disruptions" and there was no
+   way at all to find out what they were. The wall gets away with a bare tap
+   target because you are standing in front of it with nothing else to do; a
+   page you are handed a link to has to offer. */
+.site-tile {
+  cursor: pointer;
+}
+
+.site-tile:hover {
+  background: var(--panel-lit);
+}
+
+.site-more {
+  /* Last child of the tile's flex column, so it settles under whatever the card
+     drew without the card knowing it is there. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.625rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--arc-dim);
+  font: inherit;
+  font-family: var(--face-mono);
+  font-size: var(--t-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.site-tile:hover .site-more,
+.site-more:hover,
+.site-more:focus-visible {
+  color: var(--arc);
+}
+
+/* ---- The opened tile --------------------------------------------------- */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: var(--gap);
+  background: rgba(6, 9, 14, 0.72);
+  animation: sheet-in 160ms var(--ease);
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet {
+  width: min(52rem, 100%);
+  max-height: 100%;
+  /* .instrument is overflow:hidden, which is right for a tile that must not
+     spill and wrong for the view you opened to read the whole of. A BVG notice
+     runs to a paragraph; clipped, this fixes nothing. */
+  overflow-y: auto;
+  background: var(--panel-lit);
+  gap: 0.75rem;
+}
+
+.sheet-head {
+  padding-bottom: 0.75rem;
+  border-bottom: var(--rule) solid var(--engrave);
+}
+
+.sheet-close {
+  padding: 0.5rem 0.875rem;
+  border: var(--rule) solid var(--engrave);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-label);
+  cursor: pointer;
+}
+
+.sheet-close:hover {
+  background: var(--engrave);
+}
+
+.sheet-foot {
+  padding-top: 0.75rem;
+  border-top: var(--rule) solid var(--engrave);
+  color: var(--slate);
+}
+
 /* ---- What a wall-sized tile assumes and a phone-sized one cannot ------- */
 
 /* The wall's departures tile has a fixed height from the grid, so each board
@@ -259,4 +369,80 @@ body {
   }
   .site .route-times { gap: 0.5rem; }
   .site .dep-board-head { padding-bottom: 0.25rem; }
+  .site-more { margin-top: 0.375rem; }
+}
+
+
+/* ---- Inside the opened tile -------------------------------------------- */
+
+/* The detail views were drawn for a wall, and a handful of their rules assume
+   one. This is not a phone stylesheet fighting the widgets; it is the few
+   places where "1920x1200, two metres away, with a microphone button floating
+   over the bottom right corner" leaks out of the markup.
+ *
+ * Prefixed `.site .sheet` rather than left to source order, because the desktop
+ * block above re-states some of the same properties inside a media query and
+ * whichever of the two the browser applied would then depend on which one was
+ * written last. Third class, no argument. */
+
+/* Nothing in here stretches. On the wall a detail view fills a fixed screen, so
+   its sections take the height and distribute it; here the sheet is as tall as
+   what it contains, up to the viewport, and scrolls past that. Left as-is, a
+   long timetable produced a scroll region inside a scroll region. */
+.site .sheet .fill,
+.site .sheet .dep-board {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.site .sheet .dep-boards {
+  overflow-y: visible;
+}
+
+.site .sheet .route-list,
+.site .sheet .wx-week,
+.site .sheet .take-rows {
+  justify-content: flex-start;
+}
+
+/* The tile caps its disruption block so a paragraph cannot push the timetable
+   off the wall. In here the paragraph IS the point — this is the view that
+   exists to say what "2 disruptions" meant. */
+.site .sheet .dep-warnings {
+  max-height: none;
+  overflow: visible;
+}
+
+/* The wall reserves its bottom-right corner for the voice button and insets
+   every route row clear of it. This page has no microphone and no button, and
+   on a phone that inset is a third of the row spent on nothing. */
+.site .sheet .dep-boards-full .route {
+  padding-right: 0;
+}
+
+/* Four columns at wall widths — 7.5rem for the weekday alone — narrowed for
+   arm's length, where the fixed tracks otherwise overflow a 320px viewport and
+   the week scrolls sideways.
+ *
+ * Narrowed, not made flexible. Every row here is its OWN grid — .wx-week is a
+ * flex column of <li>s — so a track that sizes to content sizes to that row's
+ * content, and a Friday reading "9° 21°" laid its glyph a few pixels right of
+ * Thursday's "12° 19°". The three left tracks are fixed and the temperatures
+ * take the remainder, right-aligned, which is the shape the wall already
+ * uses and the only one where the column reads as a column. */
+.site .sheet .wx-day {
+  grid-template-columns: 4.5rem 2.75rem 2.75rem minmax(0, 1fr);
+  gap: 0.625rem;
+  padding: 0.5rem 0;
+}
+
+/* Set against the temperatures rather than floating beside a glyph it is not
+   about, now that its column is only as wide as the number. */
+.site .sheet .wx-chance {
+  text-align: right;
+}
+
+.site .sheet .take-rows {
+  gap: 1rem;
+  margin-top: 0.5rem;
 }

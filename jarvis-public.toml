@@ -31,7 +31,18 @@ bbox = { south = 52.33, north = 52.68, west = 13.08, east = 13.77 }
 # timetable: from one real Berlin address it finds the U-Bahn, the bus stop
 # on the corner and the S-Bahn, which is three of the four boards that were
 # hand-written into jarvis.toml.
+# How many BOARDS the departures tile carries, counting the pooled bus block as
+# one of them. Three is what the tile's height was measured for; a fourth is
+# drawn with its last row cropped off the bottom.
 nearby_stops = 3
+
+# How many stops actually get FETCHED. More than get a board, because whether a
+# stop deserves one depends on the routes it runs and that is only knowable
+# after asking: from one address the second and third nearest stops run the same
+# two trams as the first, and without the surplus the U-Bahn six hundred metres
+# away is never even looked at. The extras cost a few upstream calls on a cache
+# miss and nothing on a hit.
+nearby_candidates = 5
 nearby_radius_m = 900
 
 # Straight-line metres per minute on foot. The stop's reported distance is

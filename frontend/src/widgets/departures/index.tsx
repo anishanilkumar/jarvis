@@ -22,8 +22,11 @@
  * would freeze it at the last fetch.
  */
 
+import { useState } from 'preact/hooks'
+
 import { now } from '../../signals'
-import type { Widget, WidgetProps } from '../../types'
+import type { Customise, Widget, WidgetProps } from '../../types'
+import { ModeGlyph } from './mode'
 import './departures.css'
 
 interface Departure {
@@ -45,6 +48,12 @@ interface Route {
   line: string
   product: string
   destination: string
+  /** Set only on a pooled board, where each row is a different stop's walk. */
+  walk_minutes?: number
+  /** The stop this route was pooled from. Shown in the expanded view only. */
+  stop?: string
+  /** The token that hides this route's direction. Public site only. */
+  hide?: string
   departures: Departure[]
 }
 
@@ -58,19 +67,66 @@ interface Board {
   route_length: number
   /** How the provider ordered `routes`, and how to pick when more than `rows`. */
   order: 'listed' | 'soonest' | 'line'
+  /** Several stops' routes on one board, each row carrying its own walk. */
+  pooled?: boolean
+  /** The token that hides this stop. Absent on the pooled block, which is
+   *  several stops, and on the wall, which has no hiding. */
+  hide?: string
   routes?: Route[]
   departures: Departure[]
   warnings: string[]
 }
 
-interface Data {
+/** A nearby stop, board or not, as the public settings screen lists it. */
+export interface StopChoice {
+  id: string
+  name: string
+  walk_minutes: number
+  hide: string
+  hidden: boolean
+}
+
+/** A hide the server applied, and what to call it. */
+export interface Hidden {
+  token: string
+  kind: 'stop' | 'direction'
+  label: string
+}
+
+export interface Data {
   boards: Board[]
   warnings: string[]
+  /** Which upstreams actually answered. Absent on an older backend, which had
+   *  only one and therefore nothing to distinguish. */
+  sources?: string[]
+  /** Every stop the public site looked at, hidden or not. */
+  stops?: StopChoice[]
+  /** What this visitor's hides took off the board. Absent on the wall. */
+  hidden?: Hidden[]
 }
 
 /** Fallbacks for when the backend is a version behind and omits a field. */
 const DEFAULT_ROWS = 3
 const DEFAULT_ROUTE_LENGTH = 3
+
+/** The source that carries disruption remarks. The other one does not. */
+const PRIMARY = 'bvg'
+
+/**
+ * Whether this board came from somewhere other than the primary.
+ *
+ * Worth saying out loud rather than treating as an implementation detail. The
+ * fallback has no disruption feed at all, so on it an empty `warnings` means
+ * "nobody told us" where on the primary it means "nothing is wrong" — and a
+ * board that quietly stops mentioning disruptions, while looking exactly as it
+ * always does, is the most expensive silence this panel could keep.
+ *
+ * An older backend sends no `sources` at all, which is not a fallback: it is a
+ * backend from before there was one.
+ */
+function fallbackSources(data: Data | null): string[] {
+  return (data?.sources ?? []).filter((name) => name !== PRIMARY)
+}
 
 function minutesUntil(iso: string | null, nowMs: number): number | null {
   if (!iso) return null
@@ -79,6 +135,21 @@ function minutesUntil(iso: string | null, nowMs: number): number | null {
 
 function departureMinutes(departure: Departure, nowMs: number): number | null {
   return minutesUntil(departure.when ?? departure.planned, nowMs)
+}
+
+/**
+ * How long it takes to reach THIS route, which is no longer a fact about the
+ * board.
+ *
+ * The pooled bus block is several corners at once, so the walk moved onto the
+ * route and the board's own number became a fallback for the rows that haven't
+ * got one — an older backend's, or a board that really is one stop. Getting
+ * this wrong is not cosmetic: the walk is the threshold that decides which
+ * departures are still catchable, so a row using the block's shortest walk
+ * would count down to buses you cannot reach.
+ */
+function routeWalk(route: Route, board: Board): number {
+  return route.walk_minutes ?? board.walk_minutes
 }
 
 function clockTime(iso: string | null): string {
@@ -120,10 +191,11 @@ function stripTimes(
   const missed: Departure[] = []
   const upcoming: Departure[] = []
 
+  const walk = routeWalk(route, board)
   for (const departure of route.departures) {
     const minutes = departureMinutes(departure, nowMs)
     if (minutes === null) continue
-    if (minutes >= board.walk_minutes) upcoming.push(departure)
+    if (minutes >= walk) upcoming.push(departure)
     else if (!departure.cancelled) missed.push(departure)
   }
 
@@ -137,9 +209,10 @@ function stripTimes(
 
 /** Minutes to the first one you can still make; Infinity if there isn't one. */
 function nextCatchable(route: Route, board: Board, nowMs: number): number {
+  const walk = routeWalk(route, board)
   for (const departure of route.departures) {
     const minutes = departureMinutes(departure, nowMs)
-    if (minutes !== null && minutes >= board.walk_minutes && !departure.cancelled) {
+    if (minutes !== null && minutes >= walk && !departure.cancelled) {
       return minutes
     }
   }
@@ -202,37 +275,71 @@ function RouteStrip({
   board,
   expired,
   nowMs,
+  onHide,
 }: {
   route: Route
   board: Board
   expired: boolean
   nowMs: number
+  /** Set while customising: the times give their column to a Hide button. */
+  onHide?: (token: string) => void
 }) {
   const { missed, upcoming } = stripTimes(route, board, nowMs, expired)
+  const token = route.hide
+  const hideThis = onHide && token ? () => onHide(token) : null
 
   return (
     <li class="route" data-product={route.product}>
-      <span class="route-line">{route.line}</span>
+      {/* The mark sits inside the line column rather than getting one of its
+          own. It says what the line IS, so it reads as part of the name — and
+          a separate column would be a second thing to scan down for a fact you
+          want at the moment you read "M19", not two columns earlier. */}
+      <span class="route-line">
+        <ModeGlyph product={route.product} />
+        {route.line}
+      </span>
       <span class="route-dest">{route.destination}</span>
-      <ol class="route-times">
-        {missed && (
-          <Time departure={missed} lead={false} missed expired={expired} nowMs={nowMs} />
-        )}
-        {upcoming.map((departure, index) => (
-          <Time
-            key={departure.trip_id}
-            departure={departure}
-            lead={index === 0}
-            missed={false}
-            expired={expired}
-            nowMs={nowMs}
-          />
-        ))}
-        {/* The route runs, but not within the hour we asked about. Said, not
-            hidden: an empty southbound is itself the answer to "should I go
-            now", and a row that vanishes looks like a stop that closed. */}
-        {!missed && upcoming.length === 0 && <li class="rt rt-none">—</li>}
-      </ol>
+      {/* Only on the pooled block, where the rows are different corners and
+          the header can no longer say how far away any of them is. Rendered
+          from the board's flag rather than from `route.walk_minutes` being
+          present, so the column exists on every row or on none — one row
+          silently wider than its neighbours is worse than a repeated number. */}
+      {board.pooled && (
+        <span class="route-walk stamp">
+          {route.stop && <span class="route-stop">{route.stop} · </span>}
+          {routeWalk(route, board)} min
+        </span>
+      )}
+      {hideThis ? (
+        <button
+          type="button"
+          class="dep-hide"
+          aria-label={`Hide ${route.line} towards ${route.destination}`}
+          onClick={hideThis}
+        >
+          Hide
+        </button>
+      ) : (
+        <ol class="route-times">
+          {missed && (
+            <Time departure={missed} lead={false} missed expired={expired} nowMs={nowMs} />
+          )}
+          {upcoming.map((departure, index) => (
+            <Time
+              key={departure.trip_id}
+              departure={departure}
+              lead={index === 0}
+              missed={false}
+              expired={expired}
+              nowMs={nowMs}
+            />
+          ))}
+          {/* The route runs, but not within the hour we asked about. Said, not
+              hidden: an empty southbound is itself the answer to "should I go
+              now", and a row that vanishes looks like a stop that closed. */}
+          {!missed && upcoming.length === 0 && <li class="rt rt-none">—</li>}
+        </ol>
+      )}
     </li>
   )
 }
@@ -243,6 +350,7 @@ function BoardBlock({
   expired,
   nowMs,
   weight,
+  onHide,
 }: {
   board: Board
   routes: Route[]
@@ -250,9 +358,13 @@ function BoardBlock({
   nowMs: number
   /** Share of the tile's height, so boards of unequal length get equal rows. */
   weight: number
+  /** Set while customising. */
+  onHide?: (token: string) => void
 }) {
+  const token = board.hide
+
   return (
-    <div class="dep-board" style={{ flexGrow: weight }}>
+    <div class="dep-board" data-pooled={board.pooled || undefined} style={{ flexGrow: weight }}>
       <div class="spread dep-board-head">
         <span class="label">
           {board.name}
@@ -260,7 +372,23 @@ function BoardBlock({
             <span class="dep-stop"> · {board.stop}</span>
           )}
         </span>
-        <span class="stamp">{board.walk_minutes} min walk</span>
+        {/* The pooled block has no one walk to print. Its rows carry their own,
+            and a single number in the header would be a claim about all of
+            them. It has no one stop to hide either: its corners are hidden
+            from settings, where every stop is listed. */}
+        {!board.pooled &&
+          (onHide && token ? (
+            <button
+              type="button"
+              class="dep-hide"
+              aria-label={`Hide the stop ${board.name}`}
+              onClick={() => onHide(token)}
+            >
+              Hide stop
+            </button>
+          ) : (
+            <span class="stamp">{board.walk_minutes} min walk</span>
+          ))}
       </div>
 
       {routes.length === 0 ? (
@@ -274,6 +402,7 @@ function BoardBlock({
               board={board}
               expired={expired}
               nowMs={nowMs}
+              onHide={onHide}
             />
           ))}
         </ul>
@@ -355,10 +484,11 @@ function FeedStatus({
   }
 
   if (state === 'live') {
+    const backup = fallbackSources(slice.data)
     return (
-      <span class="label dep-feed" data-state="live">
+      <span class="label dep-feed" data-state="live" data-backup={backup.length > 0 || undefined}>
         <span class="dep-dot" />
-        bvg live
+        {backup.length > 0 ? `via ${backup.join(' + ')}` : 'bvg live'}
       </span>
     )
   }
@@ -375,6 +505,76 @@ function FeedStatus({
   )
 }
 
+/**
+ * The tile with nothing on it, saying which nothing.
+ *
+ * "No departures" used to cover four unrelated situations and was the wrong
+ * sentence for three of them. It reads as a claim about the TIMETABLE — this
+ * stop has nothing running — when far more often it means nobody answered when
+ * we asked. Through a BVG outage the wall sat quietly telling the household
+ * there were no trams, which is the same lie the frozen countdowns exist to
+ * prevent, just told in words instead of numbers.
+ *
+ * The reason is worked out here rather than taken from feedState(), which is
+ * written for a board that has times on it and is wrong twice over for a tile
+ * that has none: it reports "frozen" for a slice that has simply never been
+ * fetched (isExpired treats a null timestamp as expired), and it extends the
+ * one-blip grace that stops a populated board crying wolf over a single missed
+ * poll — a grace that protects nothing when there is nothing on screen, and
+ * would caption an empty tile "bvg live".
+ */
+function Empty({
+  slice,
+  offline,
+  nowMs,
+  /** The server answered and had no stops to give — the one real "nothing". */
+  answered,
+  hidden = 0,
+}: {
+  slice: WidgetProps<Data>['slice']
+  offline: boolean
+  nowMs: number
+  answered: boolean
+  /** Hides the answer applied. With nothing left on the board, this is the
+   *  difference between "no stops nearby" and "you hid them". */
+  hidden?: number
+}) {
+  const reason = offline
+    ? 'offline'
+    : answered
+      ? hidden > 0
+        ? 'hidden'
+        : 'none'
+      : slice.error !== null
+        ? 'failing'
+        : 'waiting'
+
+  const message = {
+    offline: 'no connection',
+    failing: 'departure feeds down',
+    waiting: 'waiting for departures',
+    none: 'no stops nearby',
+    hidden: `nothing left nearby · ${hidden} hidden`,
+  }[reason]
+
+  // Only where it means something. A successful answer carrying no stops is
+  // not stale, and a fetch that has never once landed has no age to report.
+  const age =
+    (reason === 'failing' || reason === 'offline') && slice.fetched_at !== null
+      ? since(slice.fetched_at, nowMs)
+      : null
+
+  return (
+    <div class="void dep-empty" data-reason={reason}>
+      <span class="dep-empty-line">
+        <span class="dep-dot" />
+        {message}
+      </span>
+      {age && <span class="stamp">last answer {age} ago</span>}
+    </div>
+  )
+}
+
 function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
   const data = slice.data
   const nowMs = now.value
@@ -386,8 +586,18 @@ function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
   const boards = data?.boards ?? []
 
   if (!data || boards.length === 0) {
-    return <div class="void">{slice.error ? 'no departures' : 'waiting for data'}</div>
+    return (
+      <Empty
+        slice={slice}
+        offline={offline}
+        nowMs={nowMs}
+        answered={!!data}
+        hidden={data?.hidden?.length}
+      />
+    )
   }
+
+  const hidden = data.hidden ?? []
 
   const shown = boards.map((board) => ({
     board,
@@ -422,10 +632,70 @@ function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
 
       <div class="spread dep-status" data-state={feedState(slice, expired, offline)}>
         <FeedStatus slice={slice} expired={expired} offline={offline} nowMs={nowMs} />
-        {data.warnings.length > 0 && (
-          <span class="dep-warning label">{data.warnings.length} disruption notice(s)</span>
-        )}
+        <span class="dep-status-notes">
+          {/* Said on the tile itself, not only in settings: a board with rows
+              taken off it that looks exactly like the whole board is a board
+              lying by omission. */}
+          {hidden.length > 0 && <span class="dep-hidden label">{hidden.length} hidden</span>}
+          {/* A count, not the text: BVG's notices run to a paragraph and would
+              swallow the board. The number is the flag; the tile's detail view
+              underneath carries what they actually say, which is the whole
+              reason this line is worth drawing at all.
+
+              On the fallback the slot explains its own emptiness instead. A
+              board that simply stops showing disruption counts looks like a
+              board with no disruptions. */}
+          {fallbackSources(data).length > 0 ? (
+            <span class="dep-warning label" data-quiet>
+              no disruption feed
+            </span>
+          ) : (
+            data.warnings.length > 0 && (
+              <span class="dep-warning label">
+                {data.warnings.length} disruption{data.warnings.length === 1 ? '' : 's'}
+              </span>
+            )
+          )}
+        </span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The switch into hiding things, on the public site's opened tile.
+ *
+ * A mode rather than a Hide button on every row all the time: the sheet is
+ * mostly opened to read a timetable, and a button down the right of every row
+ * is a column of numbers that is not there.
+ */
+function Customising({ editing, onToggle }: { editing: boolean; onToggle: () => void }) {
+  return (
+    <div class="spread dep-customise">
+      <span class="dep-customise-hint">
+        {editing
+          ? 'A train hides by platform, so its short runs go with it.'
+          : 'Hide the stops and directions you never use.'}
+      </span>
+      <button type="button" aria-pressed={editing} onClick={onToggle}>
+        {editing ? 'Done' : 'Customise'}
+      </button>
+    </div>
+  )
+}
+
+function HiddenList({ hidden, show }: { hidden: Hidden[]; show: Customise['show'] }) {
+  return (
+    <div class="dep-hidden-list">
+      <div class="label">Hidden</div>
+      {hidden.map((entry) => (
+        <div key={entry.token} class="spread dep-hidden-item">
+          <span class="body">{entry.label}</span>
+          <button type="button" class="dep-hide" onClick={() => show(entry.token)}>
+            Show
+          </button>
+        </div>
+      ))}
     </div>
   )
 }
@@ -438,36 +708,88 @@ function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
  * walk to. Standing in front of the panel you're asking a different question —
  * when do these actually run — and every route the stop reported is here, at
  * full depth, with the ones out of reach greyed rather than dropped.
+ *
+ * Unfiltered except by the reader, on the public site, who can hide a stop or a
+ * direction from here — and who then finds that list here too, because a
+ * hidden row with no visible way back is a row that looks like it stopped
+ * running.
  */
-function Detail({ slice, expired }: WidgetProps<Data>) {
+function Detail({ slice, expired, offline = false, customise }: WidgetProps<Data>) {
+  const [editing, setEditing] = useState(false)
   const data = slice.data
   const nowMs = now.value
   const boards = data?.boards ?? []
-  if (!data || boards.length === 0) return <div class="void">no departures</div>
+  const hidden = data?.hidden ?? []
+  // An answer with boards on it: the only shape the timetable below can draw.
+  const full = data && boards.length > 0 ? data : null
+  const onHide = editing ? customise?.hide : undefined
+
+  // The wall, unchanged: nothing to customise, so nothing to draw around the
+  // empty state either.
+  if (!full && !customise) {
+    return <Empty slice={slice} offline={offline} nowMs={nowMs} answered={!!data} />
+  }
 
   return (
     <div class="stack fill">
-      <div class="dep-boards dep-boards-full fill" data-boards={boards.length}>
-        {boards.map((board) => {
-          const routes = board.routes ?? []
-          return (
-            <BoardBlock
-              key={board.name || board.stop}
-              // Every number the provider kept, not the handful the wall shows.
-              board={{ ...board, route_length: 99, rows: routes.length }}
-              routes={routes}
-              expired={expired}
-              nowMs={nowMs}
-              weight={routes.length + 1}
-            />
-          )
-        })}
-      </div>
+      {customise && data && (
+        <Customising editing={editing} onToggle={() => setEditing((was) => !was)} />
+      )}
 
-      {data.warnings.length > 0 && (
+      {full ? (
+        <div
+          class="dep-boards dep-boards-full fill"
+          data-boards={boards.length}
+          data-customising={onHide ? true : undefined}
+        >
+          {boards.map((board) => {
+            const routes = board.routes ?? []
+            return (
+              <BoardBlock
+                key={board.name || board.stop}
+                // Every number the provider kept, not the handful the wall shows.
+                board={{ ...board, route_length: 99, rows: routes.length }}
+                routes={routes}
+                expired={expired}
+                nowMs={nowMs}
+                weight={routes.length + 1}
+                onHide={onHide}
+              />
+            )
+          })}
+        </div>
+      ) : (
+        <Empty
+          slice={slice}
+          offline={offline}
+          nowMs={nowMs}
+          answered={!!data}
+          hidden={hidden.length}
+        />
+      )}
+
+      {/* The way back, listed wherever it is needed: while customising, and
+          whenever the hides have emptied the board outright. */}
+      {customise && hidden.length > 0 && (editing || !full) && (
+        <HiddenList hidden={hidden} show={customise.show} />
+      )}
+
+      {full && fallbackSources(full).length > 0 && (
         <div class="dep-warnings">
           <div class="label">Disruptions</div>
-          {data.warnings.map((warning) => (
+          <p class="body muted">
+            Not available from {fallbackSources(full).join(' + ')}, which is
+            serving this board while the primary feed is down. Delays and
+            cancellations above are live; notices are not published on this
+            source at all.
+          </p>
+        </div>
+      )}
+
+      {full && full.warnings.length > 0 && (
+        <div class="dep-warnings">
+          <div class="label">Disruptions</div>
+          {full.warnings.map((warning) => (
             <p key={warning} class="body muted">
               {warning}
             </p>
