@@ -13,7 +13,7 @@ backend/jarvis/public/    FastAPI, 127.0.0.1:8768, stateless
 frontend/src/public/      a second Vite entry (site.html -> dist-public/)
 jarvis-public.toml        committed, because it holds nothing private
 nix/public.nix            services.jarvis-public, the NixOS module
-deploy-public.sh          points the VPS at this commit, rebuilds, polls /api/health
+deploy                    push to main: CI tests, deploys, checks /api/health/deep
 ```
 
 ```bash
@@ -23,8 +23,6 @@ cd backend && JARVIS_CONFIG=../jarvis-public.toml \
 
 # panel (proxies /api to :8768), then open /site.html
 cd frontend && npm run dev:site
-
-JARVIS_PUBLIC_HOST=you@yourvps JARVIS_PUBLIC_CONFIG=~/your-vps-config ./deploy-public.sh
 ```
 
 It shares the code that took the longest to get right — how a HAFAS direction

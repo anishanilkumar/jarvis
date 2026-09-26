@@ -1,0 +1,64 @@
+name: ci
+
+# Build and test everything on every push and pull request; on main, deploy the
+# public board (abfahrt) to the VPS as well.
+#
+# The wall is not deployed from here. The Pi sits on a home network behind a
+# tailnet GitHub cannot join, so it pulls instead: a timer on the Pi asks this
+# workflow's API for the newest successful run on main and rebuilds to that
+# commit (see docs/nixos.md). "Successful" is this job's green check, so a
+# commit whose tests fail reaches neither machine.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      # The backend's build runs the test suite, and the panels' builds run
+      # the type checker; all three are what the hosts will build.
+      - name: Build and test
+        run: nix build -L .#backend .#panel .#panel-public
+
+  deploy-public:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deploy at a time, and never cancelled halfway through a rebuild.
+    concurrency:
+      group: deploy-public
+      cancel-in-progress: false
+    steps:
+      - name: SSH to the VPS
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.JARVIS_DEPLOY_KEY }}" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          # Pinned rather than scanned: a scan trusts whatever answers first.
+          echo 'vps.anishsheela.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKc4w5srZCBmdbLup10mzqJMfmjC1d9P2T2MkAbF9nZ+' > ~/.ssh/known_hosts
+
+      # The account can only do this: take a commit on main and rebuild to it.
+      # nixos-config/jarvis-deploy.nix on the VPS is the other half.
+      - name: Deploy ${{ github.sha }}
+        run: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes jarvis-deploy@vps.anishsheela.com "${{ github.sha }}"
+
+      # The real pipeline, for a place on each source's path — not only "the
+      # process is up". Retried because the unit restarts during the switch.
+      - name: Check the board works
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl -fsS --max-time 30 https://abfahrt.anishsheela.com/api/health/deep; then exit 0; fi
+            sleep 10
+          done
+          echo "abfahrt did not come back healthy" >&2
+          exit 1

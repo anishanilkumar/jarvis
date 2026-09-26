@@ -95,22 +95,35 @@ in {
 
 ## Deploying
 
-The host builds from GitHub, so a deploy starts with the commit pushed. Then:
+There is nothing to run. A push to `main` is the deploy.
 
-```bash
-JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
-JARVIS_PUBLIC_HOST=you@yourvps JARVIS_PUBLIC_CONFIG=~/your-vps-config ./deploy-public.sh
-```
+`.github/workflows/ci.yml` builds the backend (which runs the tests) and both
+panels (which type-check) on every push and pull request. On `main`, when that
+is green, it deploys:
 
-Each one checks this repo is committed and on `origin/main`, points the host's
-config at that commit — the flake lock for the wall, the `jarvis-rev` file for
-the public board — commits and pushes only that one file, has the host pull and
-`nixos-rebuild switch`, and polls the health endpoint until it answers. The
-host's config repo must be cloned on the host, and `git pull --ff-only` must be
-able to bring it up to date.
+- **The public board** is pushed to. The workflow connects to the VPS as a
+  `jarvis-deploy` account whose key can do one thing — name a commit on `main`
+  and have the box rebuild to it — then checks `/api/health/deep` until the
+  board answers. The VPS records the commit on the box, and its config fetches
+  jarvis at that commit with `ref = "main"`, so nothing else evaluates. The
+  VPS side of this lives in its own config (`jarvis-deploy.nix`); the key is
+  the `JARVIS_DEPLOY_KEY` secret. By hand:
+  `ssh jarvis-deploy@<vps> <commit>`, or re-run the workflow.
+- **The wall** pulls, because GitHub cannot reach a Pi on a home network. A
+  timer on the Pi asks this workflow's API every 15 minutes for the newest
+  green run on `main`, pulls the Pi's own config repo, and if either moved
+  rebuilds with `inputs.jarvis` overridden to that commit. The override is not
+  written to the lock, so rebuild by hand with `jarvis-rebuild`, not plain
+  `nixos-rebuild`, or you get the jarvis the lock names. That module lives in
+  the Pi's config (`jarvis-autodeploy.nix`), and a push there is deployed the
+  same way.
+
+A commit whose tests fail reaches neither machine. Rolling back is a revert
+pushed to `main`, or `nixos-rebuild switch --rollback` on the host.
 
 A change to the address, the stops or any setting is a change to the host's
-config, not to this repo: edit it, push, and run `nixos-rebuild switch` there.
+config, not to this repo: edit it and push; the Pi picks it up on its next
+check, the VPS on `nixos-rebuild switch`.
 
 ## Building here
 

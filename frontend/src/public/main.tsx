@@ -4,8 +4,7 @@
  * Built separately from the wall panel (vite.public.config.ts), which is what
  * guarantees the two cannot interfere. Sharing one build would let a change to
  * the public site alter the hash of a chunk the wall's self-update check reads,
- * and would put both sites in one dist/ that deploy.sh rsyncs to the Pi with
- * --delete.
+ * and would put both sites in the one web root the wall serves.
  *
  * Three things the wall does that are deliberately absent here: no service
  * worker (a public page quietly serving a cached dashboard is the exact

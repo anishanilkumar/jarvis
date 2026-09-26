@@ -129,15 +129,10 @@ HTTPS here is not cosmetic: `getUserMedia` only works in a secure context, so
 over plain `http://` the tablet's microphone is denied with no useful error and
 voice is simply dead.
 
-## Deploy options
+## Deploying
 
-```bash
-JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
-```
-
-The Pi builds from GitHub, so push first; the script refuses otherwise. It locks
-the Pi's flake to this commit, commits and pushes only `flake.lock`, and has the
-Pi pull and rebuild. `JARVIS_REMOTE_CONFIG` is the config's path on the Pi
-(default: the same directory name, under `$HOME`), `JARVIS_FLAKE_ATTR` the
-`nixosConfigurations` name (default: the Pi's hostname). Rolling back is
-`nixos-rebuild switch --rollback` on the Pi.
+Push to `main`. The Pi checks every 15 minutes for the newest commit whose CI
+run is green and rebuilds to it; a change to the Pi's own config is picked up
+the same way. To rebuild by hand, run `jarvis-rebuild` on the Pi — not plain
+`nixos-rebuild`, which would build the older jarvis the lock names. See
+[nixos.md](nixos.md#deploying).

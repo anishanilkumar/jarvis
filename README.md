@@ -131,21 +131,19 @@ services.jarvis = {
 };
 ```
 
-Deploying is then one script, which moves the host's config to the pushed
-commit and rebuilds:
+Deploying is pushing to `main`. GitHub Actions builds and tests every push;
+when it is green, it deploys the public board to its server over SSH, and the
+wall's Pi — which GitHub cannot reach — notices within 15 minutes and rebuilds
+itself. A commit whose tests fail reaches neither. The modules, the options and
+the pipeline: [docs/nixos.md](docs/nixos.md).
 
-```bash
-JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
-```
+That pipeline is NixOS's. Anywhere else, run the backend as above under a
+service manager, pointed at your `jarvis.toml` with `JARVIS_CONFIG`, and serve
+`frontend/dist/` (from `npm run build`) with `/api/` proxied to port 8140 —
+[docs/wall.md](docs/wall.md) has the rest.
 
-It fails loudly if the backend doesn't come back healthy. The modules, the
-options and the deploy: [docs/nixos.md](docs/nixos.md).
-
-The deploy scripts are NixOS-only: they rebuild a NixOS host from its config
-repo. Anywhere else, run the backend as above under a service manager, pointed
-at your `jarvis.toml` with `JARVIS_CONFIG`, and serve `frontend/dist/` (from
-`npm run build`) with `/api/` proxied to port 8140 — [docs/wall.md](docs/wall.md)
-has the rest.
+Tests: `cd backend && python -m pytest tests`. They fake every upstream, so
+they run offline, and they also run inside the Nix build.
 
 Standing the wall up the rest of the way — voice models, secrets, the health
 check that tells you whether it worked, DNS and HTTPS — is
