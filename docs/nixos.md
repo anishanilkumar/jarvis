@@ -48,6 +48,11 @@ again only when the address or a name changes. A name that cannot be found
 stops the service with the reason in the journal, rather than drawing an empty
 board that looks like nothing is running.
 
+One difference from writing the TOML by hand: a Nix attrset is always
+alphabetical, so a board's `groups` reach the config sorted by key. Under
+`order = "listed"` that is the row order. Name the keys so they sort the way you
+want to read them, or use `order = "line"`.
+
 `settings` is merged over `jarvis.example.toml`, so leaving it empty still gives
 a working wall. Secrets do not belong in it: they would land in the Nix store.
 
