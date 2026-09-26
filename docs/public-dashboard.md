@@ -56,7 +56,7 @@ agree.
 hide a stop, or one direction of a line, from the opened departures tile. The
 jacket's argument would put that in the browser too, and there it breaks. The
 server looks at five stops, composes three boards, and keeps each route only at
-its nearest stop. Hide a stop after that and its slot sits empty instead of
+the nearest stop that gets a board. Hide a stop after that and its slot sits empty instead of
 going to the next stop out. Its U7 also vanishes, even though the station beyond
 runs it too. So the cache holds every stop's shaped board, still keyed on
 rounded coordinates and shared. Composing runs per request with the visitor's

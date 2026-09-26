@@ -221,6 +221,52 @@ def _flatten(routes: list[dict[str, Any]], keep: int) -> list[dict[str, Any]]:
     return flat[:keep]
 
 
+def _split(
+    by_walk: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Each route once, at its nearest stop: the stop boards, rail first, and
+    the routes and warnings for the pooled block.
+
+    Each stop board carries the shaped board it came from under "source", so
+    that `compose_boards` can split again among the ones that fit.
+    """
+    seen: set[tuple[str, str]] = set()
+    boards: list[dict[str, Any]] = []
+    pooled: list[dict[str, Any]] = []
+    pooled_warnings: list[str] = []
+
+    for board in by_walk:
+        own: list[dict[str, Any]] = []
+        for route in board.get("routes") or []:
+            key = _route_key(route)
+            if key in seen:
+                continue
+            seen.add(key)
+            if route.get("product") in POOLED:
+                # The walk travels with the route, because on the pooled block
+                # it is the only thing left saying which corner this is.
+                pooled.append({**route, "walk_minutes": board["walk_minutes"],
+                               "stop": board["name"]})
+            else:
+                own.append(route)
+
+        if any(route.get("product") in POOLED for route in board.get("routes") or []):
+            pooled_warnings.extend(board["warnings"])
+        if own:
+            boards.append({**board, "routes": own, "source": board})
+
+    # Rail before tram before whatever else, and within a class the shorter
+    # walk — which is what puts the U7 above the S-Bahn from one address and
+    # would put the S-Bahn first from an address nearer to it.
+    boards.sort(
+        key=lambda board: (
+            min(product_rank(route.get("product")) for route in board["routes"]),
+            board["walk_minutes"],
+        )
+    )
+    return boards, pooled, pooled_warnings
+
+
 def compose_boards(
     shaped: list[dict[str, Any]], conf: dict[str, Any], limit: int | None = None
 ) -> list[dict[str, Any]]:
@@ -266,43 +312,25 @@ def compose_boards(
     # Nearest first, so the copy of a route that survives is the short walk.
     by_walk = sorted(shaped, key=lambda board: board["walk_minutes"])
 
-    seen: set[tuple[str, str]] = set()
-    boards: list[dict[str, Any]] = []
-    pooled: list[dict[str, Any]] = []
-    pooled_warnings: list[str] = []
-
-    for board in by_walk:
-        own: list[dict[str, Any]] = []
-        for route in board.get("routes") or []:
-            key = _route_key(route)
-            if key in seen:
-                continue
-            seen.add(key)
-            if route.get("product") in POOLED:
-                # The walk travels with the route, because on the pooled block
-                # it is the only thing left saying which corner this is.
-                pooled.append({**route, "walk_minutes": board["walk_minutes"],
-                               "stop": board["name"]})
-            else:
-                own.append(route)
-
-        if any(route.get("product") in POOLED for route in board.get("routes") or []):
-            pooled_warnings.extend(board["warnings"])
-        if own:
-            boards.append({**board, "routes": own, "departures": _flatten(own, keep)})
-
-    # Rail before tram before whatever else, and within a class the shorter
-    # walk — which is what puts the U7 above the S-Bahn from one address and
-    # would put the S-Bahn first from an address nearer to it.
-    boards.sort(
-        key=lambda board: (
-            min(product_rank(route.get("product")) for route in board["routes"]),
-            board["walk_minutes"],
-        )
-    )
+    boards, pooled, pooled_warnings = _split(by_walk)
     if limit is not None:
         # The block takes one of the slots, so the stop boards get the rest.
-        boards = boards[: max(0, limit - (1 if pooled else 0))]
+        room = max(0, limit - (1 if pooled else 0))
+        if len(boards) > room:
+            # Split again among the boards that fit. The first split gave each
+            # route to its nearest stop, and when that stop is the one cut, the
+            # route went with it — from Elisabethkirchstr. the M8 went to
+            # Brunnenstr./Invalidenstr., the tram board lost its slot to the
+            # U- and S-Bahn, and the M8 was on no board at all though U
+            # Rosenthaler Platz, which kept its slot, runs it too. Only the
+            # boards that fit may claim a route now. They can only gain routes
+            # this way, never lose one, so they all still fit. The buses stay
+            # from the first split: the block pools every stop, cut or not.
+            fits = {id(board["source"]) for board in boards[:room]}
+            boards, _, _ = _split([board for board in by_walk if id(board) in fits])
+    for board in boards:
+        del board["source"]
+        board["departures"] = _flatten(board["routes"], keep)
 
     if pooled:
         boards.append(
