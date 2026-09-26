@@ -181,6 +181,35 @@
   color: var(--slate);
 }
 
+/* An hour or more away, so a time of day. Label size even when it leads: it is
+   an appointment to read, not a countdown to watch, and "Mon 13:22" at readout
+   size takes the destination's width on a phone ("975 Teu… Mon 13:22"). */
+.rt-later,
+.rt-later[data-lead='true'] {
+  font-size: var(--t-label);
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 3rem;
+  white-space: nowrap;
+}
+.rt-later[data-lead='false'] {
+  font-weight: 400;
+  color: var(--ink-dim);
+}
+
+/* Booked-only service. Small and quiet beside the line number — it qualifies
+   the line rather than competing with it — but in the alert colour's cousin, so
+   a glance still separates it from a bus that simply comes. */
+.route-call {
+  margin-left: 0.3em;
+  font-size: 0.6em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gold);
+  vertical-align: 0.15em;
+}
+
 .rt-cancelled {
   color: var(--alert);
   text-decoration: line-through;

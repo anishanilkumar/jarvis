@@ -293,6 +293,8 @@ def shape_board(
                 # on the wall.
                 "catchable": (not cancelled) and minutes is not None and minutes >= walk,
                 "platform": item.get("platform") or item.get("plannedPlatform"),
+                # A Rufbus or AST: runs only if booked by phone beforehand.
+                "on_demand": bool(item.get("onDemand")),
             }
         )
 
@@ -319,18 +321,22 @@ def shape_board(
     declared = {label: index for index, label in enumerate(groups)}
     depth = _setting(board, conf, "route_length", 4)
 
-    routes: dict[tuple[str, str], dict[str, Any]] = {}
+    routes: dict[tuple[str, str, bool], dict[str, Any]] = {}
     for departure in departures:
         destination = (
             _group_label(departure["line"], departure["direction"], groups)
             or departure["destination"]
         )
         route = routes.setdefault(
-            (departure["line"], destination),
+            # A line's booked-only runs are their own row. Folded in with the
+            # timetabled ones, a bus that comes anyway and one that comes only
+            # if you rang would share a strip and look alike.
+            (departure["line"], destination, departure["on_demand"]),
             {
                 "line": departure["line"],
                 "product": departure["product"],
                 "destination": destination,
+                "on_demand": departure["on_demand"],
                 # Position in the declared order; ungrouped routes sort
                 # after every declared one, by when they were first seen.
                 "order": declared.get(destination, len(declared) + len(routes)),

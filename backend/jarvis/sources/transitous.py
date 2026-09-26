@@ -181,6 +181,26 @@ _TRAIN_NUMBER = re.compile(r"^(ICE|IC|EC|ECE|EN|NJ|RJ|RJX|FLX|TGV)\s+\d+$|\s*\(\
 def _line_name(name: str) -> str:
     return _TRAIN_NUMBER.sub(lambda match: match.group(1) or "", name).strip()
 
+
+#: How the feeds mark a bus that only runs if someone has phoned for it: in the
+#: line's name, and nowhere else. pickupType and reservation both say NORMAL
+#: and NONE for "221 Rufbus", checked across 1,300 departures in Landkreis
+#: Forchheim. Rufbus, AST (Anruf-Sammel-Taxi), ALT (Anruf-Linien-Taxi) and
+#: the rest, as a suffix or on their own.
+_ON_DEMAND = re.compile(
+    r"\s*\b(?:Rufbus|Anrufbus|AST|ALT|Anruf-?Sammel-?Taxi|Anruf-?Linien-?Taxi|Rufbus-?Linie"
+    r"|Flexibus|Bedarfsverkehr)\b\s*",
+    re.IGNORECASE,
+)
+
+
+def _on_demand(name: str) -> tuple[str, bool]:
+    """("221 Rufbus") -> ("221", True). A name that is only the marker keeps it."""
+    stripped = _ON_DEMAND.sub(" ", name).strip()
+    if stripped == name.strip():
+        return name, False
+    return (stripped or name.strip()), True
+
 #: Coaches share stations with local buses — BlaBlaCar and Flix at the Hbf — and
 #: are not what a doorstep board is for: booked in advance, once a day, to
 #: another city.
@@ -330,15 +350,28 @@ def _departure(row: dict[str, Any], city: str | None = None) -> dict[str, Any] |
         else 0
     )
 
+    line, on_demand = _on_demand(_line_name(row.get("routeShortName") or "") or "?")
+    headsign = row.get("headsign") or ""
+    # An on-demand trip's headsign is often the service, not the place:
+    # "Anrufsammeltaxi", "Rufbus". Where it is, the trip's last stop says
+    # where it goes, and the headsign says how.
+    if headsign and not _ON_DEMAND.sub(" ", headsign).strip(" -–"):
+        on_demand = True
+        headsign = ((row.get("tripTo") or {}).get("name")) or headsign
+    elif _on_demand(headsign)[1]:
+        on_demand = True
     return {
         "tripId": row.get("tripId"),
         "line": {
-            "name": _line_name(row.get("routeShortName") or "") or "?",
+            "name": line,
             "product": _PRODUCTS.get(str(row.get("mode") or "").upper()),
         },
+        # Not a HAFAS field; BVG's answers simply lack it. The row still shows
+        # when it would leave, and says it has to be booked.
+        "onDemand": on_demand,
         # "Köln Niehl Sebastianstr." from a Köln stop: the town is where you
         # already are.
-        "direction": without_city(row.get("headsign") or "", city),
+        "direction": without_city(headsign, city),
         "when": when,
         "plannedWhen": planned,
         "delay": delay,
@@ -447,6 +480,7 @@ async def departures(
     raw.sort(key=lambda row: "_de-" not in str(row.get("tripId") or ""))
 
     rows: list[dict[str, Any]] = []
+    later: list[dict[str, Any]] = []
     seen: set[tuple[str, str | None]] = set()
     for row in raw:
         if str(row.get("mode") or "").upper() in _SKIP_MODES:
@@ -457,18 +491,47 @@ async def departures(
         # Applied here rather than on the wire, which MOTIS does not offer.
         if wanted and (departure["line"]["product"] or "") not in wanted:
             continue
-        at = _parse(departure["when"] or departure["plannedWhen"])
-        if at is not None and at > cutoff:
-            continue
         # One train, two feeds: same line, same timetabled minute.
         key = (departure["line"]["name"], departure["plannedWhen"] or departure["when"])
         if key in seen:
             continue
         seen.add(key)
+        at = _parse(departure["when"] or departure["plannedWhen"])
+        if at is not None and at > cutoff:
+            later.append(departure)
+            continue
         rows.append(departure)
 
+    rows = rows or lookahead(later, board, conf)
     rows.sort(key=lambda d: d["when"] or d["plannedWhen"] or "")
     return {"departures": rows}
+
+
+def lookahead(
+    later: list[dict[str, Any]], board: dict[str, Any], conf: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The next few departures past the window, for a stop with none inside it.
+
+    The window is right for a city, where the question is "which of these do I
+    run for", and wrong for a village, where the bus is three times a day and
+    the question is "when is the next one". An empty board there says "nothing
+    runs", which is false; the next bus at 15:07, or on Monday at 06:33, is the
+    answer. The panel shows these as clock times, not countdowns.
+
+    Off unless `lookahead_hours` is set — the wall's boards are hand-picked city
+    stops and keep their window.
+    """
+    hours = board.get("lookahead_hours") or conf.get("lookahead_hours") or 0
+    if not hours:
+        return []
+    keep = board.get("lookahead_results") or conf.get("lookahead_results") or 4
+    horizon = datetime.now(timezone.utc) + timedelta(hours=float(hours))
+    within = [
+        departure for departure in later
+        if (at := _parse(departure["when"] or departure["plannedWhen"])) is None or at <= horizon
+    ]
+    within.sort(key=lambda d: d["when"] or d["plannedWhen"] or "")
+    return within[: int(keep)]
 
 
 async def locations(

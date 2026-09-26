@@ -93,6 +93,10 @@ class TTLCache:
             self._entries[key] = (time.monotonic(), value)
             return value, 0.0
 
+    def forget(self, key: Any) -> None:
+        """Drop one entry, so the next get produces it afresh."""
+        self._entries.pop(key, None)
+
     def sweep(self) -> None:
         """Drop expired entries and their locks.
 

@@ -42,6 +42,8 @@ interface Departure {
   cancelled: boolean
   catchable: boolean
   platform: string | null
+  /** A Rufbus or AST: runs only if booked by phone beforehand. */
+  on_demand?: boolean
 }
 
 interface Route {
@@ -54,6 +56,8 @@ interface Route {
   stop?: string
   /** The token that hides this route's direction. Public site only. */
   hide?: string
+  /** Booked-only runs of the line (Rufbus, AST), kept as their own route. */
+  on_demand?: boolean
   departures: Departure[]
 }
 
@@ -158,6 +162,28 @@ function clockTime(iso: string | null): string {
   return `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
 }
 
+/** From here on a departure is a time of day, not a countdown. */
+const LATER_MINUTES = 60
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * "15:07", or "Mon 06:33" when it isn't today.
+ *
+ * A countdown is the right reading for the next tram and a useless one for the
+ * next village bus: "142" makes you do arithmetic to learn it is mid-afternoon,
+ * and "2,693" says Monday in the least readable way there is. The board only
+ * carries departures this far out when there is nothing sooner — the server
+ * looks further ahead for a stop that would otherwise be empty.
+ */
+function laterTime(iso: string | null, nowMs: number): string {
+  if (!iso) return '--:--'
+  const when = new Date(iso)
+  const today = new Date(nowMs)
+  const sameDay = when.toDateString() === today.toDateString()
+  return sameDay ? clockTime(iso) : `${WEEKDAYS[when.getDay()]} ${clockTime(iso)}`
+}
+
 /**
  * One departure you've missed, then the ones you haven't.
  *
@@ -199,11 +225,17 @@ function stripTimes(
     else if (!departure.cancelled) missed.push(departure)
   }
 
+  // A row whose next departure is already a time of day is a village bus, and
+  // the one after it is hours later again: worth less than the destination's
+  // width, which two clock times take on a phone ("230 H… 16:51 Sun 08:51").
+  const first = upcoming[0] ? departureMinutes(upcoming[0], nowMs) : null
+  const shown = first !== null && first >= LATER_MINUTES ? 1 : length
+
   return {
     // The last one out of reach, not the first: the near miss is the one that
     // just slipped past the walk, not one from twenty minutes ago.
     missed: missed.length > 0 ? missed[missed.length - 1] : null,
-    upcoming: upcoming.slice(0, length),
+    upcoming: upcoming.slice(0, shown),
   }
 }
 
@@ -263,6 +295,13 @@ function Time({
     /* Frozen: the scheduled time is still true, the countdown isn't. */
     return <li class="rt rt-frozen">{clockTime(departure.when ?? departure.planned)}</li>
   }
+  if (minutes >= LATER_MINUTES) {
+    return (
+      <li class="rt rt-later" data-lead={lead} data-late={departure.delay_minutes > 0}>
+        {laterTime(departure.when ?? departure.planned, nowMs)}
+      </li>
+    )
+  }
   return (
     <li class="rt" data-lead={lead} data-missed={missed} data-late={departure.delay_minutes > 0}>
       {Math.max(0, minutes)}
@@ -297,6 +336,13 @@ function RouteStrip({
       <span class="route-line">
         <ModeGlyph product={route.product} />
         {route.line}
+        {/* Said on the row, because the times alone look exactly like a bus
+            that will come: this one comes only if someone rang for it. */}
+        {route.on_demand && (
+          <span class="route-call" title="On demand: runs only if booked by phone beforehand">
+            call
+          </span>
+        )}
       </span>
       <span class="route-dest">{route.destination}</span>
       {/* Only on the pooled block, where the rows are different corners and

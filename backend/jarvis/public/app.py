@@ -77,6 +77,8 @@ class Service:
         # and a third board with the U-Bahn on it.
         self.stop_candidates = pub.get("nearby_candidates", self.stop_count + 2)
         self.stop_radius = pub.get("nearby_radius_m", 900)
+        # Where to look for a station when there is no train inside the radius.
+        self.rail_radii = tuple(pub.get("nearby_rail_radii_m", [2500, 6000]))
         self.metres_per_minute = float(pub.get("walk_metres_per_minute", 80))
         self.limiter = RateLimiter(pub.get("rate_limit_per_minute", 60))
         self.upstream = asyncio.Semaphore(pub.get("max_concurrent_upstream", 8))
@@ -84,6 +86,7 @@ class Service:
         self.geocode_cache = TTLCache(pub.get("cache_geocode_seconds", 3600))
         self.weather_cache = TTLCache(pub.get("cache_weather_seconds", 600))
         self.departures_cache = TTLCache(pub.get("cache_departures_seconds", 30))
+        self.stops_cache = TTLCache(pub.get("cache_stops_seconds", 3600))
 
         self.http: httpx.AsyncClient = build_client(self.cfg)
 
@@ -92,7 +95,7 @@ class Service:
         return self.wx.get("api_base", "https://api.open-meteo.com/v1/forecast")
 
     def caches(self) -> tuple[TTLCache, ...]:
-        return (self.geocode_cache, self.weather_cache, self.departures_cache)
+        return (self.geocode_cache, self.weather_cache, self.departures_cache, self.stops_cache)
 
 
 service: Service
@@ -284,8 +287,10 @@ async def departures_endpoint(
     _in_coverage(lat, lon)
     rounded = round_coords(lat, lon)
 
-    async def produce() -> dict[str, Any]:
-        found_by, stops = await _upstream(
+    in_vbb = VBB.contains(*rounded)
+
+    async def lookup() -> tuple[str, list[dict[str, Any]]]:
+        return await _upstream(
             nearby.stops_near(
                 service.http,
                 service.dep,
@@ -294,25 +299,58 @@ async def departures_endpoint(
                 count=service.stop_candidates,
                 radius=service.stop_radius,
                 # Outside Berlin and Brandenburg BVG has no stops to find.
-                only=None if VBB.contains(*rounded) else "transitous",
+                only=None if in_vbb else "transitous",
+                rail_radii=service.rail_radii,
             )
         )
-        if not stops:
+
+    async def stops() -> tuple[str, list[dict[str, Any]]]:
+        """Which stops, cached far longer than their departures.
+
+        Stops do not move, and finding them is now the expensive half: in a
+        village it is a second search kilometres wide for the station. So they
+        are kept for an hour and only the departures are fetched every half
+        minute. One exception: Berlin stops found while BVG was down came from
+        the fallback and carry no disruption notices, so once BVG answers again
+        they are looked up afresh rather than an hour later.
+        """
+        cached = service.stops_cache.peek(rounded)
+        if cached and in_vbb and cached[0] != "bvg" and sources.breaker("bvg").opened_at is None:
+            service.stops_cache.forget(rounded)
+        value, _ = await service.stops_cache.get(rounded, lookup)
+        return value
+
+    async def produce() -> dict[str, Any]:
+        found_by, found = await stops()
+        if not found:
             # Not an error. Plenty of addresses have no stop inside 900m, and
             # a page that says so is more useful than one that says "failed".
             return {"shaped": [], "warnings": [], "sources": []}
 
-        return await _upstream(
-            nearby.fetch_boards(
-                service.http,
-                stops,
-                service.dep,
-                metres_per_minute=service.metres_per_minute,
-                # Pinned: these ids came from one source and mean nothing to
-                # the other.
-                found_by=found_by,
+        async def boards() -> dict[str, Any]:
+            return await _upstream(
+                nearby.fetch_boards(
+                    service.http,
+                    found,
+                    service.dep,
+                    metres_per_minute=service.metres_per_minute,
+                    # Pinned: these ids came from one source and mean nothing to
+                    # the other.
+                    found_by=found_by,
+                )
             )
-        )
+
+        try:
+            return await boards()
+        except HTTPException:
+            # The source these stops came from has stopped answering, and its
+            # ids are useless to the other. Look the stops up again with
+            # whichever source is answering now.
+            service.stops_cache.forget(rounded)
+            found_by, found = await stops()
+            if not found:
+                return {"shaped": [], "warnings": [], "sources": []}
+            return await boards()
 
     # The cache holds every nearby stop's board and is shared by everyone near
     # this rounding. Hides are one visitor's, so they are applied after it, per

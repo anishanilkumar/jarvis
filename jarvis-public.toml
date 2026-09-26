@@ -46,6 +46,11 @@ nearby_stops = 3
 nearby_candidates = 5
 nearby_radius_m = 900
 
+# With no train inside the radius, these are searched in turn for the nearest
+# station, which then competes for a board like any other stop. A village's
+# bus runs three times a day and its station is how anyone actually leaves.
+nearby_rail_radii_m = [2500, 6000]
+
 # Straight-line metres per minute on foot. The stop's reported distance is
 # as-the-crow-flies, so this is already optimistic; the walk is rounded UP for
 # the same reason. A board that claims you can make a tram you cannot is worse
@@ -57,6 +62,8 @@ walk_metres_per_minute = 80
 cache_geocode_seconds = 3600
 cache_weather_seconds = 600
 cache_departures_seconds = 30
+# Stops don't move, and finding a village's station is a wide search.
+cache_stops_seconds = 3600
 
 # Per-IP token bucket. Generous for a person, useless for a scraper.
 rate_limit_per_minute = 60
@@ -92,6 +99,11 @@ api_base = "https://v6.bvg.transport.rest"
 # stops over, so the window is shorter and the ask is smaller.
 duration_minutes = 45
 results = 8
+# A stop with nothing inside that window shows its next few departures anyway,
+# as clock times, up to this far ahead: a village bus that next runs at 15:07,
+# or on Monday at 06:33, is an answer; an empty board says nothing runs.
+lookahead_hours = 60
+lookahead_results = 4
 rows = 4
 route_length = 3
 # The only ordering that survives a stop nobody configured: it sorts by line and

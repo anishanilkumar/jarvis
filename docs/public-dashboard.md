@@ -89,6 +89,30 @@ The address search goes to Transitous first for the same reason in reverse:
 BVG's knows only Berlin and Brandenburg, and answers a Fürth street with a
 Potsdam one.
 
+**Villages.** The board was built for a city, where the question is which of
+several trams to run for, and three things about it are wrong in the
+countryside:
+
+- *A 45-minute window empties the board.* A stop with nothing inside it now
+  shows its next few departures anyway, up to 60 hours out, and the panel
+  draws anything an hour or more away as a time of day — "16:51", "Mon 13:22"
+  — instead of a countdown nobody wants to do arithmetic on. BVG will not look
+  more than about a day ahead in one query, so for a Brandenburg village the
+  horizon is walked a day at a time.
+- *900 metres misses the station.* With no train inside the radius, the stop
+  search looks again at 2.5 km and then 6 km for the nearest station, which
+  then competes for a board like any other stop, with its honest walk — 39
+  minutes from Niedermirsberg to Ebermannstadt — and only its trains: its
+  buses would be rows nobody can reach. Stops are cached for an hour, apart from
+  the 30-second departures, because that search is the expensive half.
+- *Some buses come only if you rang.* Rufbus and AST (Anruf-Sammel-Taxi) runs
+  are in the national timetable, marked nowhere but in the line's name — "221
+  Rufbus", "224 AST"; the pickup and reservation fields say NORMAL and NONE for
+  every one of them across Landkreis Forchheim. So the name is read, the line
+  shows as "221" with a CALL mark, and its booked-only runs keep a row of their
+  own rather than folding into the timetabled 221's. Where the headsign is only
+  "Anrufsammeltaxi", the trip's last stop stands in as its destination.
+
 **Why coverage is enforced twice.** Search results are filtered to Germany,
 *and* every coordinate reaching the API is bounding-box checked. The second
 check is the real one: the URL parameters take lat/lon directly, and without it

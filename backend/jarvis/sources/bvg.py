@@ -15,6 +15,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import math
+from datetime import datetime, timedelta, timezone
+
 import httpx
 
 NAME = "bvg"
@@ -74,13 +77,47 @@ def board_params(board: dict[str, Any], conf: dict[str, Any]) -> dict[str, Any]:
 async def departures(
     http: httpx.AsyncClient, *, board: dict[str, Any], conf: dict[str, Any]
 ) -> dict[str, Any]:
-    """One stop's raw departures document, exactly as the API sends it."""
-    response = await http.get(
-        f"{_base(conf)}/stops/{board['stop_id']}/departures",
-        params=board_params(board, conf),
-    )
+    """One stop's raw departures document, exactly as the API sends it.
+
+    With `lookahead_hours` set and nothing inside the window, asks again that
+    far ahead and keeps the next few — see `lookahead` in the Transitous
+    source for why a village stop needs that. One extra call, and only for a
+    stop that answered with nothing.
+    """
+    url = f"{_base(conf)}/stops/{board['stop_id']}/departures"
+    params = board_params(board, conf)
+    response = await http.get(url, params=params)
     response.raise_for_status()
-    return response.json()
+    document = response.json()
+
+    def rows_of(doc: Any) -> list[dict[str, Any]]:
+        return (doc.get("departures") if isinstance(doc, dict) else doc) or []
+
+    hours = _setting(board, conf, "lookahead_hours", 0)
+    if not hours or rows_of(document):
+        return document
+
+    # A day at a time. HAFAS answers a longer `duration` with nothing at all —
+    # Kleßen's Monday buses are there asked from Sunday night and absent asked
+    # for sixty hours from Saturday — so the horizon is walked in steps.
+    keep = _setting(board, conf, "lookahead_results", 4)
+    start = datetime.now(timezone.utc)
+    for day in range(math.ceil(hours / 24)):
+        response = await http.get(
+            url,
+            params={
+                **params,
+                "when": (start + timedelta(days=day)).isoformat(),
+                "duration": int(min(24, hours - 24 * day) * 60),
+            },
+        )
+        response.raise_for_status()
+        later = response.json()
+        rows = rows_of(later)
+        if rows:
+            base = later if isinstance(later, dict) else {}
+            return {**base, "departures": rows[:keep]}
+    return document
 
 
 async def nearby(

@@ -80,6 +80,16 @@ def _modes(stop: dict[str, Any]) -> set[str]:
     return {name for name, served in products.items() if served}
 
 
+#: The modes that count as "a train" when deciding whether to look further out
+#: for one. Trams and buses are what the village already has.
+RAIL = {"suburban", "subway", "regional", "express"}
+
+#: How many stops to ask for on the wider search. BVG answers nearest-first and
+#: cannot be told to skip buses, so a small town's forty bus stops come back
+#: ahead of its station unless the ask is generous.
+RAIL_SEARCH = 40
+
+
 def choose_stops(stops: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
     """Which of the nearby stops get a board — by mode, then by distance.
 
@@ -134,6 +144,7 @@ async def stops_near(
     count: int,
     radius: int,
     only: str | None = None,
+    rail_radii: tuple[int, ...] = (),
 ) -> tuple[str, list[dict[str, Any]]]:
     """Up to `count` stops within `radius` metres, nearest first, from whichever
     source answers.
@@ -147,6 +158,15 @@ async def stops_near(
     De-duplicating the whole answer before choosing, rather than stopping at
     the first `count`, is what gives `choose_stops` something to choose from:
     truncating first would hand it the three nearest and no S-Bahn.
+
+    With no train inside `radius`, each of `rail_radii` is searched in turn for
+    the nearest station, and the first one found joins the candidates. In a
+    city there is always rail within a few hundred metres and this never runs;
+    in a village the bus stop by the church runs three times a day and the
+    station two kilometres out is how anyone actually leaves. Its walk is the
+    honest one — twenty-odd minutes — because that is the threshold the board
+    counts down against, and a cycling guess would list trains you cannot
+    reach on foot.
     """
     name, found = await sources.attempt(
         "nearby", http=http, lat=lat, lon=lon, count=count, radius=radius, conf=conf,
@@ -167,6 +187,28 @@ async def stops_near(
             continue
         seen.add(key)
         stops.append(stop)
+
+    if not any(_modes(stop) & RAIL for stop in stops):
+        for far in rail_radii:
+            # Pinned to the source that found the rest: its ids are the only
+            # ones the departures call will be able to read.
+            _, wider = await sources.attempt(
+                "nearby", http=http, lat=lat, lon=lon, count=RAIL_SEARCH, radius=far,
+                conf=conf, only=name,
+            )
+            rail = [
+                stop for stop in wider
+                if isinstance(stop, dict) and stop.get("id") and stop.get("name")
+                and _modes(stop) & RAIL
+                and _same_place(clean_stop_name(stop["name"])) not in seen
+            ]
+            if rail:
+                station = min(rail, key=lambda stop: stop.get("distance") or 0)
+                # Only its trains. The buses at a station half an hour's walk
+                # away would join the pooled block as rows nobody can reach,
+                # pushing out the village's own.
+                stops.append({**station, "only_products": sorted(_modes(station) & RAIL)})
+                break
     return name, choose_stops(stops, count)
 
 
@@ -184,6 +226,7 @@ def board_for(stop: dict[str, Any], *, metres_per_minute: float) -> dict[str, An
     name = clean_stop_name(stop.get("name") or "")
     distance = stop.get("distance") or 0
     return {
+        **({"products": stop["only_products"]} if stop.get("only_products") else {}),
         "stop_id": stop["id"],
         # Equal on purpose: the panel prints `stop` after `name` only when they
         # differ, so this gives the board one clean header line instead of the
@@ -200,7 +243,7 @@ def board_for(stop: dict[str, Any], *, metres_per_minute: float) -> dict[str, An
     }
 
 
-def _route_key(route: dict[str, Any]) -> tuple[str, str]:
+def _route_key(route: dict[str, Any]) -> tuple[str, str, bool]:
     """What makes two strips at two stops the same service.
 
     Line and destination, not line alone: the U7 north and the U7 south are two
@@ -211,6 +254,9 @@ def _route_key(route: dict[str, Any]) -> tuple[str, str]:
     return (
         (route.get("line") or "").casefold(),
         (route.get("destination") or "").casefold(),
+        # The booked-only runs of a line are a different service from its
+        # timetabled ones; the nearer stop's copy of one is no copy of the other.
+        bool(route.get("on_demand")),
     )
 
 
@@ -236,7 +282,7 @@ def _split(
     Each stop board carries the shaped board it came from under "source", so
     that `compose_boards` can split again among the ones that fit.
     """
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, bool]] = set()
     boards: list[dict[str, Any]] = []
     pooled: list[dict[str, Any]] = []
     pooled_warnings: list[str] = []
@@ -412,6 +458,7 @@ def _annotate(board: dict[str, Any], stop_id: str) -> dict[str, Any]:
             f"p:{stop_id}:{route['line']}:{platform}"
             if platform
             else f"r:{route['line']}:{route['destination']}"
+            + (":call" if route.get("on_demand") else "")
         )
         routes.append({**route, "platform": platform, "hide": token})
     return {**board, "routes": routes, "stop_id": stop_id, "hide": f"s:{stop_id}"}
