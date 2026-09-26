@@ -8,7 +8,7 @@
  *    <script src> in a freshly fetched /index.html; a change that moved only a
  *    shared chunk's hash would leave that check saying "current" while the wall
  *    ran old code. The check would be lying, quietly, forever.
- *  - deploy.sh rsyncs frontend/dist/ to the Pi with --delete. One dist/ would
+ *  - The wall's web root is dist/, whole. One dist/ would
  *    ship this entire site to the wall on every deploy.
  *  - `manualChunks: undefined` declines to group chunks manually; it does not
  *    disable splitting. The wall's single-bundle property only holds while

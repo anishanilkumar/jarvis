@@ -28,6 +28,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from jarvis import config
 from jarvis.http import build_client
 from jarvis.registry import discover
+from jarvis.resolve import apply as resolve_places
 from jarvis.voice import stt as stt_module
 from jarvis.voice.router import Router
 from jarvis.voice.tts import PiperTTS
@@ -178,6 +179,9 @@ class Session:
 async def startup() -> None:
     cfg = config.load()
     http = build_client(cfg)
+    # The dashboard usually got here first, so this is normally answered from
+    # the state directory they share.
+    await resolve_places(cfg, http)
     providers = {cls.slug: cls(cfg, http) for cls in discover()}
 
     app.state.deps = {

@@ -15,6 +15,7 @@ from jarvis import config
 from jarvis.cache import Cache
 from jarvis.http import build_client
 from jarvis.registry import discover
+from jarvis.resolve import apply as resolve_places
 from jarvis.scheduler import Scheduler
 
 log = logging.getLogger(__name__)
@@ -68,6 +69,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # One shared client: connection reuse matters when departures refresh every
     # 30s, and it keeps us well inside BVG's 100 req/min.
     http = build_client(cfg)
+    # Before any provider exists: they read the coordinates and stop ids this
+    # fills in when the config gave an address or stop names instead.
+    await resolve_places(cfg, http)
 
     async def on_update(slug: str) -> None:
         await hub.publish("state", {slug: scheduler.states[slug].as_dict()})

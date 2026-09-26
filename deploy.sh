@@ -1,61 +1,56 @@
 #!/usr/bin/env bash
-# Deploy Jarvis to the Pi.
+# Deploy the wall: move the Pi's NixOS flake to this commit and rebuild.
 #
-# The frontend is built HERE and rsynced, rather than built on the Pi: that
-# keeps Node off a box that is already busy, and a Vite build on a Pi 4 is
-# minutes rather than seconds.
+# The Pi's config takes this repo as a flake input (`inputs.jarvis`) and gets
+# the panel, the backend and both units from nix/wall.nix. The address, the
+# stops and every other setting live in that config as `services.jarvis`, not
+# in a jarvis.toml here. So a deploy is: update the input's lock to this
+# commit, commit and push the lock, and have the Pi pull and rebuild. That is
+# also why a deploy needs this commit on GitHub first — the Pi fetches it from
+# there.
 #
-# The backend is rsynced too. An earlier version of this script did `git pull`
-# on the Pi instead, which quietly assumed the deploy target was a clone; on a
-# box where it isn't, the pull failed *after* the panel had already shipped and
-# left a new frontend talking to an old backend. Rsync makes the deploy work
-# the same way regardless of how the Pi's copy got there.
-#
-# The NixOS units and the Caddy vhost live in the pinix repo and are deployed
-# with `nixos-rebuild`, not by this script.
+# The panel is built on the Pi, once per change. It used to be built here and
+# rsynced to keep Node off a busy box; with Nix the build is a derivation, done
+# once and then cached, and the rsync is what made the panel and the backend
+# able to disagree.
 set -euo pipefail
 
 HOST="${JARVIS_HOST:?set JARVIS_HOST, e.g. you@yourpi}"
-WEB_ROOT="${JARVIS_WEB_ROOT:-/var/www/jarvis}"
-REPO="${JARVIS_REPO:-jarvis}"          # relative to the remote user's $HOME
+# The Pi's config flake: a local clone here, and the same repo cloned on the Pi.
+CONFIG="${JARVIS_CONFIG_REPO:?set JARVIS_CONFIG_REPO to your local clone of the Pi config flake}"
+REMOTE_CONFIG="${JARVIS_REMOTE_CONFIG:-$(basename "$CONFIG")}"   # relative to the remote $HOME
+ATTR="${JARVIS_FLAKE_ATTR:-$(ssh "$HOST" hostname)}"
 SERVICE_WAIT="${JARVIS_SERVICE_WAIT:-4}"
+SOURCE="${JARVIS_SOURCE:-github:anishanilkumar/jarvis}"   # the flake ref the config's input points at
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$here"
 
-echo "==> building panel"
-(cd frontend && npm ci --silent && npm run build)
-
-echo "==> shipping panel to $HOST:$WEB_ROOT"
-# --delete so a renamed content-hashed asset doesn't accumulate forever on an
-# SD card. index.html is excluded from compression concerns; it's tiny.
-rsync -az --delete frontend/dist/ "$HOST:$WEB_ROOT/"
-
-echo "==> shipping backend to $HOST:~/$REPO/backend"
-rsync -az --delete \
-  --exclude '__pycache__' --exclude '*.pyc' --exclude '.venv' \
-  backend/jarvis/ "$HOST:$REPO/backend/jarvis/"
-
-# jarvis.toml is gitignored, so it reaches the Pi only if something copies it.
-# Leaving that to "you'll remember" is how you deploy a feature's code and then
-# spend an evening wondering why the feature isn't on. A timestamped backup
-# stays on the Pi so a bad config is one `mv` from being undone.
-if [[ "${JARVIS_SKIP_CONFIG:-0}" == "1" ]]; then
-  echo "==> skipping config (JARVIS_SKIP_CONFIG=1)"
-elif [[ -f jarvis.toml ]]; then
-  echo "==> shipping jarvis.toml"
-  ssh "$HOST" "test -f $REPO/jarvis.toml && cp $REPO/jarvis.toml $REPO/jarvis.toml.bak-\$(date +%Y%m%d-%H%M%S) || true"
-  rsync -az jarvis.toml "$HOST:$REPO/jarvis.toml"
-else
-  echo "==> no local jarvis.toml; leaving the Pi's config alone"
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "!! uncommitted changes — the Pi builds from GitHub, so commit and push first" >&2
+  exit 1
+fi
+git fetch -q origin
+rev="$(git rev-parse HEAD)"
+if ! git merge-base --is-ancestor "$rev" origin/main; then
+  echo "!! $rev is not on origin/main — push it first" >&2
+  exit 1
 fi
 
-echo "==> restarting services"
-# The voice unit is restarted separately and allowed to fail: it only starts if
-# its venv exists, and a box without the voice venv should still get a working
-# display rather than a failed deploy.
-ssh "$HOST" "sudo systemctl restart jarvis-dashboard"
-ssh "$HOST" "sudo systemctl restart jarvis-voice || echo '   (voice not running — see README: voice venv)'"
+echo "==> locking $CONFIG to jarvis ${rev:0:7}"
+# The exact commit, not "whatever main is now": what was checked above is what
+# ships.
+nix flake lock "$CONFIG" --override-input jarvis "$SOURCE/$rev"
+if [[ -n "$(git -C "$CONFIG" status --porcelain -- flake.lock)" ]]; then
+  # Only the lock: the config repo may have other work in progress.
+  git -C "$CONFIG" commit -q -m "jarvis: deploy ${rev:0:7}" -- flake.lock
+  git -C "$CONFIG" push -q
+else
+  echo "   already there"
+fi
+
+echo "==> rebuilding $HOST"
+ssh "$HOST" "cd $REMOTE_CONFIG && git pull -q --ff-only && sudo nixos-rebuild switch --flake .#$ATTR"
 
 echo "==> health"
 # Poll rather than sleep-then-check-once.

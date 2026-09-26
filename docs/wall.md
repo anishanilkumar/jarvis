@@ -6,12 +6,18 @@ and stop wherever you have enough.
 
 ## Clone and configure
 
+On NixOS, skip this: import the flake's wall module and set `address` and
+`stops` in the host's config — see [nixos.md](nixos.md).
+
+Anywhere else:
+
 ```bash
 git clone git@github.com:<you>/jarvis.git ~/jarvis
-cp jarvis.example.toml jarvis.toml   # then edit: stop id, coordinates, hosts
+cp jarvis.example.toml jarvis.toml   # then edit: address, stops, hosts
 ```
 
-Find a stop id with:
+A board can name its stop (`stop = "S+U Berlin Hauptbahnhof"`) and the id is looked up at
+startup; if the search picks the wrong one, pin it with `stop_id`, found with:
 
 ```bash
 curl 'https://v6.bvg.transport.rest/locations?query=<name>'
@@ -32,8 +38,8 @@ key — speech recognition runs on this machine.
 ## The voice service
 
 On NixOS both services are declarative and there is nothing to do here:
-`nix/jarvis-dashboard.nix` builds it, including the one package missing from
-nixpkgs (`nix/pkgs/openwakeword.nix`). Do **not** reach for a venv on NixOS —
+`services.jarvis.voice.enable = true` builds it, including the one package
+missing from nixpkgs (`nix/pkgs/openwakeword.nix`). Do **not** reach for a venv on NixOS —
 without `programs.nix-ld` there is no dynamic loader at `/lib`, so pip's
 manylinux wheels for numpy and onnxruntime cannot execute at all.
 
@@ -126,9 +132,12 @@ voice is simply dead.
 ## Deploy options
 
 ```bash
-JARVIS_HOST=you@yourpi ./deploy.sh
+JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
 ```
 
-The previous config is kept on the Pi as `jarvis.toml.bak-<timestamp>`. Set
-`JARVIS_SKIP_CONFIG=1` to leave the Pi's config alone; `JARVIS_REPO` and
-`JARVIS_WEB_ROOT` override the paths.
+The Pi builds from GitHub, so push first; the script refuses otherwise. It locks
+the Pi's flake to this commit, commits and pushes only `flake.lock`, and has the
+Pi pull and rebuild. `JARVIS_REMOTE_CONFIG` is the config's path on the Pi
+(default: the same directory name, under `$HOME`), `JARVIS_FLAKE_ATTR` the
+`nixosConfigurations` name (default: the Pi's hostname). Rolling back is
+`nixos-rebuild switch --rollback` on the Pi.

@@ -34,8 +34,13 @@ members = ["you"]
 # ---------------------------------------------------------------------------
 # Location — used by weather, rain and sunrise/sunset.
 # Example: Berlin Hauptbahnhof. Change to wherever the panel hangs.
+#
+# Either an address, looked up once at startup and remembered in the state
+# directory, or coordinates, which skip the lookup. `name` is what the clock
+# tile shows; with an address it defaults to the district.
 # ---------------------------------------------------------------------------
 [location]
+# address = "Invalidenstraße 50, Berlin"
 latitude = 52.5251
 longitude = 13.3694
 name = "Mitte"
@@ -166,6 +171,10 @@ order = "listed"
 # stop 900003201 is "S+U Berlin Hauptbahnhof" (M8, M10, bus 147).
 [[departures.boards]]
 name = "Tram"
+# The stop by name, looked up at startup; `stop_id` pins it instead, for when
+# the search finds the wrong one. `walk_minutes` is worked out from the address
+# when the board does not give it.
+stop = "S+U Berlin Hauptbahnhof"
 stop_id = "900003201"
 stop_name = "Berlin Hauptbahnhof"
 # Restrict to these modes; empty or absent means everything the stop serves.

@@ -108,21 +108,31 @@ STATE_DIRECTORY=/tmp/jarvis .venv/bin/uvicorn jarvis.main:app --port 8140 --relo
 cd frontend && npm install && npm run dev
 ```
 
-Copy `jarvis.example.toml` to `jarvis.toml` and edit the stop id, the
-coordinates and the hosts. It is gitignored, which is why the example is the
-committed one; every comment in it is there to be read.
+Copy `jarvis.example.toml` to `jarvis.toml` and edit the address, the stops and
+the hosts. It is gitignored, which is why the example is the committed one;
+every comment in it is there to be read.
 
-Deploying is one script:
+On NixOS none of that file is needed. The repo is a flake with a module for the
+wall and one for the public board, and the address and stops are lines in the
+host's config:
 
-```bash
-JARVIS_HOST=you@yourpi ./deploy.sh
+```nix
+services.jarvis = {
+  enable = true;
+  address = "Invalidenstraße 50, Berlin";
+  stops = [ "S+U Berlin Hauptbahnhof" { name = "Invalidenpark"; products = [ "bus" ]; } ];
+};
 ```
 
-It builds the panel here, rsyncs panel + backend + `jarvis.toml`, restarts the
-units and fails loudly if the backend doesn't come back healthy. Because
-`jarvis.toml` is gitignored, a deploy is the only thing that carries config to
-the Pi — worth knowing, because a config that never arrives looks exactly like a
-feature that doesn't work.
+Deploying is then one script, which moves the host's config to the pushed
+commit and rebuilds:
+
+```bash
+JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
+```
+
+It fails loudly if the backend doesn't come back healthy. The modules, the
+options and the deploy: [docs/nixos.md](docs/nixos.md).
 
 Standing the wall up the rest of the way — voice models, secrets, the health
 check that tells you whether it worked, DNS and HTTPS — is
@@ -173,6 +183,8 @@ derhuerst's ISC-licensed `hafas-rest-api`.
   dashboard, and the decisions behind it.
 - [docs/voice.md](docs/voice.md) — the local voice stack, what leaving the cloud
   cost, and how to go back if you want to.
+- [docs/nixos.md](docs/nixos.md) — the flake, the two modules, and deploying
+  with them.
 - [docs/deployment-notes.md](docs/deployment-notes.md) — eight things that only
   showed up on real hardware, kept because they cost hours.
 
