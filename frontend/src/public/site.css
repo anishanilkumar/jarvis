@@ -446,3 +446,15 @@ body {
   gap: 1rem;
   margin-top: 0.5rem;
 }
+
+/* Styled as the footer's other links: it is one, it just runs code. */
+.site-install {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}

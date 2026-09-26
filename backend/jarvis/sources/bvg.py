@@ -50,6 +50,19 @@ def _base(conf: dict[str, Any]) -> str:
     return str(conf.get("api_base") or DEFAULT_API_BASE).rstrip("/")
 
 
+def _timeout(conf: dict[str, Any]) -> httpx.Timeout:
+    """Shorter than the client's own ten seconds, on purpose.
+
+    When transport.rest is struggling it does not refuse — it answers 503 after
+    ten or eleven seconds, measured on 26 September 2026. At the client default
+    every Berlin page load sat out that whole wait before falling back to
+    Transitous, three times over until the breaker opened. A healthy answer
+    takes well under two seconds, so five is room for a slow day and a quick
+    way out of a bad one; after three of those the breaker skips BVG entirely.
+    """
+    return httpx.Timeout(float(conf.get("timeout_seconds", 5.0)), connect=3.0)
+
+
 def board_params(board: dict[str, Any], conf: dict[str, Any]) -> dict[str, Any]:
     """Query parameters for one board's /departures call.
 
@@ -84,9 +97,14 @@ async def departures(
     source for why a village stop needs that. One extra call, and only for a
     stop that answered with nothing.
     """
-    url = f"{_base(conf)}/stops/{board['stop_id']}/departures"
+    stop_id = str(board.get("stop_id") or "")
+    if not stop_id.isdigit():
+        # A Transitous id, or none: a board BVG has no stop for.
+        from jarvis.sources import NotHere
+        raise NotHere(stop_id)
+    url = f"{_base(conf)}/stops/{stop_id}/departures"
     params = board_params(board, conf)
-    response = await http.get(url, params=params)
+    response = await http.get(url, params=params, timeout=_timeout(conf))
     response.raise_for_status()
     document = response.json()
 
@@ -110,6 +128,7 @@ async def departures(
                 "when": (start + timedelta(days=day)).isoformat(),
                 "duration": int(min(24, hours - 24 * day) * 60),
             },
+            timeout=_timeout(conf),
         )
         response.raise_for_status()
         later = response.json()
@@ -155,6 +174,7 @@ async def nearby(
             "results": count * 3,
             "distance": radius,
         },
+        timeout=_timeout(conf),
     )
     response.raise_for_status()
     return [stop for stop in response.json() if isinstance(stop, dict)]
@@ -181,6 +201,7 @@ async def locations(
             "results": results,
             "fuzzy": "true",
         },
+        timeout=_timeout(conf),
     )
     response.raise_for_status()
     return [hit for hit in response.json() if isinstance(hit, dict)]

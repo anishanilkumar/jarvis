@@ -28,6 +28,7 @@ import { now } from '../../signals'
 import type { Customise, Widget, WidgetProps } from '../../types'
 import { ModeGlyph } from './mode'
 import './departures.css'
+import { Reach, StepFreeGlyph } from './travel'
 
 interface Departure {
   trip_id: string
@@ -44,6 +45,8 @@ interface Departure {
   platform: string | null
   /** A Rufbus or AST: runs only if booked by phone beforehand. */
   on_demand?: boolean
+  /** Off live data rather than only the timetable. Absent from older backends. */
+  live?: boolean
 }
 
 interface Route {
@@ -52,12 +55,16 @@ interface Route {
   destination: string
   /** Set only on a pooled board, where each row is a different stop's walk. */
   walk_minutes?: number
+  /** The same by bike, where the distance is known. */
+  cycle_minutes?: number | null
   /** The stop this route was pooled from. Shown in the expanded view only. */
   stop?: string
   /** The token that hides this route's direction. Public site only. */
   hide?: string
   /** Booked-only runs of the line (Rufbus, AST), kept as their own route. */
   on_demand?: boolean
+  /** Every listed departure is marked step-free. Absent means unknown, not no. */
+  step_free?: boolean
   departures: Departure[]
 }
 
@@ -65,6 +72,8 @@ interface Board {
   name: string
   stop: string
   walk_minutes: number
+  /** By bike, where the distance is known; never the countdown's threshold. */
+  cycle_minutes?: number | null
   /** Route strips this board is worth on the ambient tile. */
   rows: number
   /** Countdowns along each strip. */
@@ -86,6 +95,7 @@ export interface StopChoice {
   id: string
   name: string
   walk_minutes: number
+  cycle_minutes?: number | null
   hide: string
   hidden: boolean
 }
@@ -295,18 +305,56 @@ function Time({
     /* Frozen: the scheduled time is still true, the countdown isn't. */
     return <li class="rt rt-frozen">{clockTime(departure.when ?? departure.planned)}</li>
   }
+  // Only the timetable's word for it. Marked, not dimmed: dimming already means
+  // "missed", and a scheduled bus you can catch is not one you missed.
+  const scheduled = departure.live === false || undefined
   if (minutes >= LATER_MINUTES) {
     return (
-      <li class="rt rt-later" data-lead={lead} data-late={departure.delay_minutes > 0}>
+      <li class="rt rt-later" data-lead={lead} data-late={departure.delay_minutes > 0} data-scheduled={scheduled}>
         {laterTime(departure.when ?? departure.planned, nowMs)}
       </li>
     )
   }
   return (
-    <li class="rt" data-lead={lead} data-missed={missed} data-late={departure.delay_minutes > 0}>
+    <li
+      class="rt"
+      data-lead={lead}
+      data-missed={missed}
+      data-late={departure.delay_minutes > 0}
+      data-scheduled={scheduled}
+    >
       {Math.max(0, minutes)}
     </li>
   )
+}
+
+/** Trains, where a platform is a place to walk to. A bus's "Steig" is its stop. */
+const RAIL_PRODUCTS = new Set(['subway', 'suburban', 'regional', 'express'])
+
+/**
+ * "Gl. 3", from whatever the source calls it — "2", "Gleis 3", "Bahnsteig Gleis
+ * 1" — or nothing. The most common across the route's departures, so one train
+ * moved for engineering works cannot relabel the row. Anything that does not
+ * read as a track number is dropped rather than shown: Hamburg's feed puts an
+ * internal id ("HHA-U 119004") there, and a stop-position code over 30 is not a
+ * track anybody signposts.
+ */
+function platformLabel(route: Route): string | null {
+  if (!RAIL_PRODUCTS.has(route.product)) return null
+  const counts = new Map<string, number>()
+  for (const departure of route.departures) {
+    if (departure.platform) counts.set(departure.platform, (counts.get(departure.platform) ?? 0) + 1)
+  }
+  let best: string | null = null
+  for (const [platform, count] of counts) {
+    if (best === null || count > (counts.get(best) ?? 0)) best = platform
+  }
+  if (!best) return null
+  const match =
+    /(?:Gleis|Gl\.?|Bahnsteig|Bstg\.?)\s*(\d{1,2}[a-z]?)\s*$/i.exec(best) ??
+    /^\s*(\d{1,2}[a-z]?)\s*$/i.exec(best)
+  if (!match || parseInt(match[1], 10) > 30) return null
+  return `Gl. ${match[1]}`
 }
 
 function RouteStrip({
@@ -315,11 +363,14 @@ function RouteStrip({
   expired,
   nowMs,
   onHide,
+  detailed = false,
 }: {
   route: Route
   board: Board
   expired: boolean
   nowMs: number
+  /** The expanded timetable, which has the width for a platform. */
+  detailed?: boolean
   /** Set while customising: the times give their column to a Hide button. */
   onHide?: (token: string) => void
 }) {
@@ -343,8 +394,18 @@ function RouteStrip({
             call
           </span>
         )}
+        {route.step_free && (
+          <span class="route-stepfree" title="Step-free">
+            <StepFreeGlyph />
+          </span>
+        )}
       </span>
-      <span class="route-dest">{route.destination}</span>
+      <span class="route-dest">
+        {route.destination}
+        {detailed && platformLabel(route) && (
+          <span class="route-platform stamp"> · {platformLabel(route)}</span>
+        )}
+      </span>
       {/* Only on the pooled block, where the rows are different corners and
           the header can no longer say how far away any of them is. Rendered
           from the board's flag rather than from `route.walk_minutes` being
@@ -353,7 +414,7 @@ function RouteStrip({
       {board.pooled && (
         <span class="route-walk stamp">
           {route.stop && <span class="route-stop">{route.stop} · </span>}
-          {routeWalk(route, board)} min
+          <Reach walk={routeWalk(route, board)} cycle={route.cycle_minutes ?? board.cycle_minutes} />
         </span>
       )}
       {hideThis ? (
@@ -397,6 +458,7 @@ function BoardBlock({
   nowMs,
   weight,
   onHide,
+  detailed = false,
 }: {
   board: Board
   routes: Route[]
@@ -406,6 +468,8 @@ function BoardBlock({
   weight: number
   /** Set while customising. */
   onHide?: (token: string) => void
+  /** The expanded timetable: platforms shown. */
+  detailed?: boolean
 }) {
   const token = board.hide
 
@@ -433,7 +497,7 @@ function BoardBlock({
               Hide stop
             </button>
           ) : (
-            <span class="stamp">{board.walk_minutes} min walk</span>
+            <Reach walk={board.walk_minutes} cycle={board.cycle_minutes} />
           ))}
       </div>
 
@@ -443,6 +507,7 @@ function BoardBlock({
         <ul class="route-list">
           {routes.map((route) => (
             <RouteStrip
+              detailed={detailed}
               key={`${route.line}/${route.destination}`}
               route={route}
               board={board}
@@ -455,6 +520,21 @@ function BoardBlock({
       )}
     </div>
   )
+}
+
+/**
+ * What the dotted times mean, said once for the tile — or nothing, where every
+ * time is live, which is the Berlin case and should look exactly as it did.
+ */
+function timetableNote(data: Data | null | undefined): string | null {
+  const all = (data?.boards ?? []).flatMap((board) =>
+    (board.routes ?? []).flatMap((route) => route.departures),
+  )
+  const known = all.filter((departure) => departure.live !== undefined)
+  if (known.length === 0) return null
+  const scheduled = known.filter((departure) => departure.live === false).length
+  if (scheduled === 0) return null
+  return scheduled === known.length ? 'timetable only' : 'dotted = timetable'
 }
 
 function since(fetchedAt: number | null, nowMs: number): string {
@@ -683,6 +763,13 @@ function Card({ slice, expired, offline = false }: WidgetProps<Data>) {
               taken off it that looks exactly like the whole board is a board
               lying by omission. */}
           {hidden.length > 0 && <span class="dep-hidden label">{hidden.length} hidden</span>}
+          {/* What the dotted times are. With the other notes about the data
+              rather than beside the source, where it wrapped into them. */}
+          {timetableNote(data) && (
+            <span class="dep-warning label" data-quiet>
+              {timetableNote(data)}
+            </span>
+          )}
           {/* A count, not the text: BVG's notices run to a paragraph and would
               swallow the board. The number is the flag; the tile's detail view
               underneath carries what they actually say, which is the whole
@@ -800,6 +887,7 @@ function Detail({ slice, expired, offline = false, customise }: WidgetProps<Data
                 nowMs={nowMs}
                 weight={routes.length + 1}
                 onHide={onHide}
+                detailed
               />
             )
           })}

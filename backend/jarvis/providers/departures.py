@@ -295,6 +295,17 @@ def shape_board(
                 "platform": item.get("platform") or item.get("plannedPlatform"),
                 # A Rufbus or AST: runs only if booked by phone beforehand.
                 "on_demand": bool(item.get("onDemand")),
+                # Whether the time came off live data. HAFAS sends a delay of
+                # null — not 0 — when it has none, and the Transitous source
+                # does the same. The panel marks the ones that are only the
+                # timetable: Hamburg had live data for 10 of 43 departures in
+                # September 2026, and a countdown looks equally sure either way.
+                "live": item.get("delay") is not None,
+                # Only ever True or absent. The feeds that say anything say
+                # "accessible" or "not accessible", and outside Berlin "not"
+                # is what they say for every trip — Munich's U-Bahn included —
+                # so a no is read as "unknown" and never drawn.
+                "step_free": True if item.get("stepFree") else None,
             }
         )
 
@@ -360,6 +371,12 @@ def shape_board(
     ordered = sorted(routes.values(), key=key)
 
     for route in ordered:
+        # Marked step-free only if every departure listed is: a mark that holds
+        # for the next one and not the one after would be a promise broken
+        # at the platform.
+        route["step_free"] = bool(route["departures"]) and all(
+            d.get("step_free") for d in route["departures"]
+        )
         # Depth is per route and generous rather than exact: the panel drops
         # the ones already out of walking reach, so a strip trimmed to
         # exactly what it displays would empty from the left over the
@@ -370,6 +387,9 @@ def shape_board(
         "name": board.get("name") or board.get("stop_name", ""),
         "stop": board.get("stop_name", ""),
         "walk_minutes": walk,
+        # Where the distance is known: the public board's stops, and a wall
+        # board whose stop was looked up by name.
+        "cycle_minutes": board.get("cycle_minutes"),
         # How many route strips this board is worth on the ambient tile. A
         # display decision, but it belongs to the board rather than the
         # widget: a U-Bahn platform and the half-dozen bus routes sharing

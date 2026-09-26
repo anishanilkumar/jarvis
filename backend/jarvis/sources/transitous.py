@@ -325,10 +325,22 @@ _NOT_PLATFORMS = {"bus", "u-bahn", "s-bahn", "tram", "straßenbahn", "zug", "bah
 
 
 def _platform(place: dict[str, Any]) -> str | None:
-    text = place.get("description") or place.get("track")
-    if not text or str(text).strip().casefold() in _NOT_PLATFORMS:
-        return None
-    return str(text).strip()
+    """The track where there is a short one, else a description that names a
+    place to stand.
+
+    The track first: at Bamberg the description is "Gleis 6+8", the island
+    between two tracks, and the track says which of them — "6" — which is the
+    answer to "where do I go". Descriptions are the fallback for feeds without
+    tracks, and for bus stops, where "Steig 4" is all there is.
+    """
+    for key in ("track", "scheduledTrack"):
+        text = str(place.get(key) or "").strip()
+        if text and len(text) <= 4 and text.casefold() not in _NOT_PLATFORMS:
+            return text
+    text = str(place.get("description") or "").strip()
+    if text and text.casefold() not in _NOT_PLATFORMS:
+        return text
+    return None
 
 
 def _departure(row: dict[str, Any], city: str | None = None) -> dict[str, Any] | None:
@@ -369,12 +381,16 @@ def _departure(row: dict[str, Any], city: str | None = None) -> dict[str, Any] |
         # Not a HAFAS field; BVG's answers simply lack it. The row still shows
         # when it would leave, and says it has to be booked.
         "onDemand": on_demand,
+        # Positive only; see the shaping's step_free for why a "not" is dropped.
+        "stepFree": row.get("wheelchairAccessible") == "ACCESSIBLE",
         # "Köln Niehl Sebastianstr." from a Köln stop: the town is where you
         # already are.
         "direction": without_city(headsign, city),
         "when": when,
         "plannedWhen": planned,
-        "delay": delay,
+        # None, not 0, without live data — HAFAS's own convention, which the
+        # shaping reads as "timetable only". A 0 would claim it is on time.
+        "delay": delay if row.get("realTime") else None,
         # A cancelled trip cancels this stop of it; the panel draws either the
         # same way.
         "cancelled": bool(row.get("cancelled") or row.get("tripCancelled")),
@@ -582,6 +598,9 @@ async def locations(
                 "postcode": hit.get("zip") or "",
                 "district": district_of(areas) or "",
                 "country": hit.get("country") or "",
+                # A street address, or a place with a name — a café, a hiking
+                # route. The picker lists addresses first.
+                "kind": "address" if hit.get("type") == "ADDRESS" else "place",
             }
         )
         if len(hits) >= results:

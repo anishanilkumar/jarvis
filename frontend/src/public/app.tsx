@@ -24,6 +24,7 @@ import rain from '../widgets/rain'
 import weather from '../widgets/weather'
 import { hide, place, kiosk, show } from './place'
 import { Clock } from './clock'
+import { install, installable } from './install'
 import { Settings } from './settings'
 import '../styles/interior.css'
 
@@ -294,6 +295,14 @@ export function Dashboard() {
           </svg>
           source on GitHub
         </a>
+        {installable.value && (
+          <>
+            {' · '}
+            <button type="button" class="site-install" onClick={() => void install()}>
+              add to home screen
+            </button>
+          </>
+        )}
       </footer>
     </div>
   )

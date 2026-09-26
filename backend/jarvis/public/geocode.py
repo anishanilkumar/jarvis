@@ -49,6 +49,7 @@ def shape_hit(hit: dict[str, Any]) -> dict[str, Any] | None:
             "postcode": hit.get("postcode") or "",
             "lat": lat,
             "lon": lon,
+            "kind": hit.get("kind") or "address",
         }
 
     address = hit.get("address") or ""
@@ -58,14 +59,36 @@ def shape_hit(hit: dict[str, Any]) -> dict[str, Any] | None:
         # Only Berlin writes its districts after a hyphen. Elsewhere a hyphen
         # is part of the town's name.
         district = place[len("Berlin-"):] if place.startswith("Berlin-") else place
-        return {"name": street, "district": district, "postcode": postcode, "lat": lat, "lon": lon}
+        return {"name": street, "district": district, "postcode": postcode, "lat": lat, "lon": lon,
+                "kind": "address"}
 
     # A point of interest, or an address spelled some other way. The bounding
     # box decides whether it is in scope, not this.
     name = hit.get("name") or address
     if not name:
         return None
-    return {"name": name, "district": "", "postcode": "", "lat": lat, "lon": lon}
+    return {"name": name, "district": "", "postcode": "", "lat": lat, "lon": lon, "kind": "place"}
+
+
+def ranked(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Addresses first, then named places, each merged with its near-twins.
+
+    The geocoder mixes them in its own relevance order, so "Marktplatz,
+    Heiligenstadt" came back with a hiking route and a snack bar between the
+    square and the town. Somebody typing where they live means an address; a
+    place stays listed after them, since a landmark is sometimes the easiest
+    name for a spot. Twins — one building's entrances, the same route mapped
+    twice — are merged on the name as a reader sees it: case and spacing aside.
+    """
+    unique: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for hit in sorted(hits, key=lambda hit: hit.get("kind") != "address"):
+        key = (
+            " ".join(hit["name"].split()).casefold(),
+            hit["district"].casefold(),
+            hit["postcode"],
+        )
+        unique.setdefault(key, hit)
+    return [{k: v for k, v in hit.items() if k != "kind"} for hit in unique.values()]
 
 
 def in_germany(hit: dict[str, Any]) -> bool:

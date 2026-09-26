@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full-bleed background so Android's masks (circle, squircle) cut only
+       dark, and the mark inside the central 80% safe zone. -->
+  <rect width="512" height="512" fill="#0A0E14"/>
+  <g transform="translate(96 84) scale(16)" fill="none" stroke="#3dd6f5"
+     stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- The panel's regional-train mark: a nose, a window, two lamps, the rail. -->
+    <path d="M4.5 15V7a9 9 0 0 1 11 0v8Z"/>
+    <path d="M6 10.5h8"/>
+    <path d="M6.5 13h1.5"/>
+    <path d="M13 13h1.5"/>
+    <path d="M2.5 18h15"/>
+  </g>
+  <!-- A route strip's rule, as on the tile. -->
+  <path d="M136 416h240" stroke="#3dd6f5" stroke-opacity="0.35" stroke-width="10" stroke-linecap="round"/>
+</svg>

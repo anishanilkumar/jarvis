@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from jarvis import config as config_module
 from jarvis.http import build_client
@@ -80,6 +81,7 @@ class Service:
         # Where to look for a station when there is no train inside the radius.
         self.rail_radii = tuple(pub.get("nearby_rail_radii_m", [2500, 6000]))
         self.metres_per_minute = float(pub.get("walk_metres_per_minute", 80))
+        self.cycle_metres_per_minute = float(pub.get("cycle_metres_per_minute", 200))
         self.limiter = RateLimiter(pub.get("rate_limit_per_minute", 60))
         self.upstream = asyncio.Semaphore(pub.get("max_concurrent_upstream", 8))
 
@@ -192,6 +194,50 @@ async def health() -> dict[str, Any]:
     return {"ok": True, "coverage": "Germany", "sources": sources.health()}
 
 
+#: What the deep check asks for: one place on each source's path. Berlin Hbf
+#: goes to BVG first; Fürth Rathaus only ever to Transitous. Both have trains
+#: all night or, failing that, a next departure the look-ahead finds.
+STALE_LIMIT = 300
+
+CANARIES = {
+    "berlin": (52.5251, 13.3694),
+    "fuerth": (49.4771, 10.9887),
+}
+
+
+@app.get("/api/health/deep")
+async def deep_health() -> Any:
+    """Whether a visitor would actually get a board, for an outside monitor.
+
+    /api/health says the process is up, and said "ok" through an afternoon when
+    BVG was answering 503 — true, and no use to anyone deciding whether the site
+    works. This runs the real pipeline for two fixed places and fails (503) if
+    either comes back with no boards, naming which. It goes through the same
+    30-second cache as the page, so a monitor polling every few minutes adds
+    next to nothing upstream. Not rate-limited: a monitor is one caller, and a
+    429 would read as the site being down.
+    """
+    checks: dict[str, Any] = {}
+    for name, (lat, lon) in CANARIES.items():
+        try:
+            view = await _departures_view(lat, lon, [])
+            checks[name] = {
+                "boards": len(view.get("boards") or []),
+                "sources": view.get("sources") or [],
+                "stale_seconds": view.get("stale_seconds", 0),
+            }
+        except HTTPException as exc:
+            checks[name] = {"boards": 0, "error": exc.detail}
+    # Boards from the last-good cache are still boards, but after five minutes
+    # of serving them the upstreams are down, and that is what a monitor is for.
+    ok = all(
+        check["boards"] > 0 and check.get("stale_seconds", 0) <= STALE_LIMIT
+        for check in checks.values()
+    )
+    body = {"ok": ok, "checks": checks, "sources": sources.health()}
+    return body if ok else JSONResponse(body, status_code=503)
+
+
 @app.get("/api/geocode")
 async def geocode_endpoint(
     request: Request, q: str = Query(min_length=2, max_length=120)
@@ -208,12 +254,7 @@ async def geocode_endpoint(
             shaped = geocode.shape_hit(hit)
             if shaped and service.bbox.contains(shaped["lat"], shaped["lon"]):
                 found.append(shaped)
-        # One building's entrances come back as separate hits with the same
-        # address, which as a list is the same line three times.
-        unique: dict[tuple[str, str, str], dict[str, Any]] = {}
-        for shaped in found:
-            unique.setdefault((shaped["name"], shaped["district"], shaped["postcode"]), shaped)
-        return list(unique.values())
+        return geocode.ranked(found)
 
     # Served stale without comment, and only here: a street's coordinates do
     # not move, so an hour-old geocode is not stale in any sense the reader
@@ -285,6 +326,12 @@ async def departures_endpoint(
 ) -> dict[str, Any]:
     _gate(request)
     _in_coverage(lat, lon)
+    return await _departures_view(lat, lon, hide)
+
+
+async def _departures_view(lat: float, lon: float, hide: list[str]) -> dict[str, Any]:
+    """The departures document for a point: what the page asks for, and what
+    the deep health check asks for on its behalf."""
     rounded = round_coords(lat, lon)
 
     in_vbb = VBB.contains(*rounded)
@@ -334,6 +381,7 @@ async def departures_endpoint(
                     found,
                     service.dep,
                     metres_per_minute=service.metres_per_minute,
+                    cycle_metres_per_minute=service.cycle_metres_per_minute,
                     # Pinned: these ids came from one source and mean nothing to
                     # the other.
                     found_by=found_by,

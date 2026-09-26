@@ -212,7 +212,23 @@ async def stops_near(
     return name, choose_stops(stops, count)
 
 
-def board_for(stop: dict[str, Any], *, metres_per_minute: float) -> dict[str, Any]:
+#: Straight-line metres per minute by bike: a relaxed 15 km/h once the road's
+#: detours are counted. Shown beside the walk, never used as the threshold.
+CYCLE_METRES_PER_MINUTE = 200.0
+
+
+def minutes_for(distance: float, metres_per_minute: float) -> int:
+    """Rounded up, and from a straight-line distance that is already
+    optimistic. Erring the other way would list a tram you cannot reach."""
+    return max(1, math.ceil(distance / metres_per_minute))
+
+
+def board_for(
+    stop: dict[str, Any],
+    *,
+    metres_per_minute: float,
+    cycle_metres_per_minute: float = CYCLE_METRES_PER_MINUTE,
+) -> dict[str, Any]:
     """A [[departures.boards]] table for a stop nobody configured.
 
     Every filter is empty, which the shaping already handles: no products means
@@ -233,9 +249,12 @@ def board_for(stop: dict[str, Any], *, metres_per_minute: float) -> dict[str, An
         # same words twice with a separator between them.
         "name": name,
         "stop_name": name,
-        # Rounded up, and from a straight-line distance that is already
-        # optimistic. Erring the other way would list a tram you cannot reach.
-        "walk_minutes": max(1, math.ceil(distance / metres_per_minute)),
+        "walk_minutes": minutes_for(distance, metres_per_minute),
+        # Beside the walk, not instead of it: the walk stays the threshold the
+        # board counts down against, because it is the one nobody can be
+        # wrong about having. The bike says what the station forty minutes'
+        # walk out really costs, which in a village is how it is reached.
+        "cycle_minutes": minutes_for(distance, cycle_metres_per_minute),
         "order": "line",
         # The town, where the source knows it, so the departures can drop it
         # from the front of each destination as the stop name already has.
@@ -298,6 +317,7 @@ def _split(
                 # The walk travels with the route, because on the pooled block
                 # it is the only thing left saying which corner this is.
                 pooled.append({**route, "walk_minutes": board["walk_minutes"],
+                               "cycle_minutes": board.get("cycle_minutes"),
                                "stop": board["name"]})
             else:
                 own.append(route)
@@ -394,6 +414,10 @@ def compose_boards(
                 # and wrong in the safe direction: it only ever shows a
                 # departure you have less time to reach than it claims.
                 "walk_minutes": min(route["walk_minutes"] for route in pooled),
+                "cycle_minutes": min(
+                    (route["cycle_minutes"] for route in pooled if route.get("cycle_minutes")),
+                    default=None,
+                ),
                 "rows": rows,
                 "route_length": route_length,
                 # Whatever leaves next, re-sorted by the panel every tick. The
@@ -555,6 +579,7 @@ async def fetch_boards(
     conf: dict[str, Any],
     *,
     metres_per_minute: float,
+    cycle_metres_per_minute: float = CYCLE_METRES_PER_MINUTE,
     found_by: str | None = None,
 ) -> dict[str, Any]:
     """Every nearby stop's board, shaped but not yet composed.
@@ -579,7 +604,11 @@ async def fetch_boards(
     id the API has never heard of, answered with an empty list, drawn as a stop
     where nothing runs.
     """
-    asked = [board_for(stop, metres_per_minute=metres_per_minute) for stop in stops]
+    asked = [
+        board_for(stop, metres_per_minute=metres_per_minute,
+                  cycle_metres_per_minute=cycle_metres_per_minute)
+        for stop in stops
+    ]
 
     async def one(board: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         name, raw = await sources.attempt(
@@ -627,6 +656,7 @@ def compose_view(
                 "id": board["stop_id"],
                 "name": board["name"],
                 "walk_minutes": board["walk_minutes"],
+                "cycle_minutes": board.get("cycle_minutes"),
                 "hide": board["hide"],
                 "hidden": board["hide"] in applied,
             }

@@ -10,6 +10,15 @@
       content="The weather, whether to take a jacket or an umbrella, and the next departures from the stops nearest your address, anywhere in Germany."
     />
     <title>Abfahrt — from your doorstep</title>
+    <!-- On a home screen: its own manifest, not the wall's (which is "Jarvis",
+         fullscreen and landscape). Standalone keeps the phone's status bar. -->
+    <link rel="manifest" href="/abfahrt.webmanifest" />
+    <link rel="icon" href="/abfahrt-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/abfahrt-apple-touch.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Abfahrt" />
   </head>
   <body>
     <div id="site"></div>

@@ -56,6 +56,8 @@ nearby_rail_radii_m = [2500, 6000]
 # the same reason. A board that claims you can make a tram you cannot is worse
 # than one that drops it.
 walk_metres_per_minute = 80
+# The same by bike, shown beside the walk. Never the threshold: the walk is.
+cycle_metres_per_minute = 200
 
 # Server-side cache lifetimes, seconds. Coordinates are rounded before they
 # become a cache key, so a whole street shares one upstream call.

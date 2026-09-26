@@ -5,7 +5,7 @@
 # The voice service's extra dependencies are not here. They are heavy (numpy,
 # onnxruntime), only the Pi's voice unit needs them, and the modules add them
 # to that one interpreter.
-{ lib, buildPythonPackage, setuptools, fastapi, uvicorn, httpx, websockets }:
+{ lib, buildPythonPackage, setuptools, fastapi, uvicorn, httpx, websockets, pytestCheckHook }:
 
 let
   root = ../backend;
@@ -22,6 +22,7 @@ buildPythonPackage {
     fileset = lib.fileset.unions [
       (root + "/pyproject.toml")
       (lib.fileset.fileFilter (file: file.hasExt "py") (root + "/jarvis"))
+      (lib.fileset.fileFilter (file: file.hasExt "py") (root + "/tests"))
     ];
   };
 
@@ -29,6 +30,10 @@ buildPythonPackage {
   dependencies = [ fastapi uvicorn httpx websockets ];
 
   pythonImportsCheck = [ "jarvis.main" "jarvis.public.app" ];
+
+  # The tests run in the build, so a host cannot build — and so cannot deploy —
+  # a backend whose tests fail. They touch no network: every upstream is faked.
+  nativeCheckInputs = [ pytestCheckHook ];
 
   meta = {
     description = "Wall display, voice front-end and public departures board";

@@ -113,6 +113,25 @@ countryside:
   own rather than folding into the timetabled 221's. Where the headsign is only
   "Anrufsammeltaxi", the trip's last stop stands in as its destination.
 
+**What each row admits to.** A time off live data and a time off the timetable
+count down the same way, so the ones that are only the timetable are dotted
+and the tile's status line says what the dots mean ("timetable only", or
+"dotted = timetable" when it is mixed); Berlin on BVG, all live, looks as it
+always did. Every stop shows the walk and, beside it, the same distance by bike
+(200 straight-line metres a minute) — the walk stays the threshold the
+countdown uses. Trains show their track in the expanded view ("Gl. 6"), from
+the track field where the feed has one, since a description like "Gleis 6+8"
+names the island rather than the track. A departure marked step-free gets the
+wheelchair mark; one marked "not accessible" gets nothing, because outside
+Berlin every feed checked says that for every trip, Munich's U-Bahn included,
+which can only mean "unknown".
+
+**How the board knows it is working.** `/api/health` says the process is up.
+`/api/health/deep` runs the real pipeline for Berlin Hbf (BVG's path) and
+Fürth Rathaus (Transitous's) and answers 503, naming which, if either has no
+boards or has been served from the last-good cache for over five minutes —
+the one to point an uptime monitor at.
+
 **Why coverage is enforced twice.** Search results are filtered to Germany,
 *and* every coordinate reaching the API is bounding-box checked. The second
 check is the real one: the URL parameters take lat/lon directly, and without it

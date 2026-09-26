@@ -22,15 +22,18 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from jarvis.config import Config
-from jarvis.sources.bvg import _base
-from jarvis.sources.transitous import _haversine
+from jarvis.public import geocode
+from jarvis.public.limits import VBB
+from jarvis.public.nearby import CYCLE_METRES_PER_MINUTE, minutes_for
+from jarvis.sources import transitous
+from jarvis.sources.bvg import _base, _timeout
+from jarvis.sources.transitous import _haversine, city_of, without_city
 
 log = logging.getLogger(__name__)
 
@@ -54,65 +57,108 @@ def _clean(name: str) -> str:
     return name.replace(" (Berlin)", "").strip()
 
 
-async def _search(
-    http: httpx.AsyncClient, conf: dict[str, Any], query: str, *, stops: bool
+async def _bvg_stops(
+    http: httpx.AsyncClient, conf: dict[str, Any], query: str
 ) -> list[dict[str, Any]]:
-    """BVG's location search, for either addresses or stops.
-
-    BVG only, with no fallback to Transitous: a `stop_id` is a BVG id, and the
-    fallback source maps from one rather than issuing its own. An id from
-    anywhere else would be a board that never answers.
-    """
+    """BVG's stop search. Only asked inside Berlin and Brandenburg: elsewhere it
+    answers a name it does not have with a similar one it does."""
     response = await http.get(
         f"{_base(conf)}/locations",
         params={
             "query": query,
-            "addresses": "false" if stops else "true",
+            "addresses": "false",
             "poi": "false",
-            "stops": "true" if stops else "false",
+            "stops": "true",
             "results": 5,
             "fuzzy": "true",
         },
+        timeout=_timeout(conf),
     )
     response.raise_for_status()
-    return [hit for hit in response.json() if isinstance(hit, dict)]
+    return [hit for hit in response.json() if isinstance(hit, dict) and hit.get("id")]
 
 
 async def _address(http: httpx.AsyncClient, conf: dict[str, Any], query: str) -> dict[str, Any]:
-    hits = [hit for hit in await _search(http, conf, query, stops=False)
-            if hit.get("latitude") is not None and hit.get("longitude") is not None]
-    if not hits:
-        raise Unresolved(f"no address matches {query!r}")
-    hit = hits[0]
-    # "10115 Berlin-Mitte, Invalidenstraße 49" -> "Mitte", the name the
-    # clock tile has always shown.
-    place = (hit.get("address") or "").split(",")[0]
-    district = place.split("-", 1)[1] if "-" in place else ""
-    return {
-        "latitude": hit["latitude"],
-        "longitude": hit["longitude"],
-        "name": district,
-        "found": hit.get("address") or hit.get("name") or query,
-    }
+    """An address, from the same search the public board's picker uses:
+    Transitous first, since it covers the whole country, BVG if it is down."""
+    _, hits = await geocode.search(http, conf, query, results=5)
+    for hit in hits:
+        if not geocode.in_germany(hit):
+            continue
+        shaped = geocode.shape_hit(hit)
+        if shaped:
+            return {
+                "latitude": shaped["lat"],
+                "longitude": shaped["lon"],
+                # "Mitte", "Fürth" — what the clock tile has always shown.
+                "name": shaped["district"],
+                "found": f"{shaped['name']}, {shaped['district']} {shaped['postcode']}".strip(),
+            }
+    raise Unresolved(f"no address in Germany matches {query!r}")
 
 
-async def _stop(http: httpx.AsyncClient, conf: dict[str, Any], query: str) -> dict[str, Any]:
-    hits = [hit for hit in await _search(http, conf, query, stops=True)
-            if hit.get("id") and hit.get("name")]
-    if not hits:
-        raise Unresolved(f"no stop matches {query!r}")
-    # The name as written if it is there, else the search's own first choice.
-    # Not the nearest to home: "U Rosenthaler Platz" also finds U Rosa-
-    # Luxemburg-Platz, which from some addresses is closer and is not what was
-    # asked for.
+#: How far from home a stop found by name may be. A stop name is not unique
+#: across the country — "Rathaus" is in every town — and the nearest one that
+#: matches is still the wrong one if it is in the next city.
+NEAR_ENOUGH_M = 25_000
+
+
+def _matches(name: str, query: str, city: str | None) -> bool:
     wanted = query.casefold()
-    hit = next((h for h in hits if _clean(h["name"]).casefold() == wanted), hits[0])
-    location = hit.get("location") or {}
+    return _clean(name).casefold() == wanted or without_city(name, city).casefold() == wanted
+
+
+async def _stop(
+    http: httpx.AsyncClient,
+    conf: dict[str, Any],
+    query: str,
+    home: tuple[float, float] | None,
+) -> dict[str, Any]:
+    """A stop by name: a BVG id where BVG has the stop, a Transitous id where not.
+
+    BVG is asked first inside Berlin and Brandenburg, because only its ids get
+    the disruption notices. Anywhere else, or while BVG is down, Transitous —
+    whose ids the departures then go to directly. Either way the name as written
+    wins over the search's own first choice: "U Rosenthaler Platz" also finds U
+    Rosa-Luxemburg-Platz, which from some addresses is closer.
+    """
+    if home is None or VBB.contains(*home):
+        try:
+            hits = await _bvg_stops(http, conf, query)
+        except httpx.HTTPError as err:
+            log.warning("BVG stop search for %r failed (%s); trying Transitous", query, err)
+            hits = []
+        if hits:
+            hit = next((h for h in hits if _matches(h["name"], query, "Berlin")), hits[0])
+            location = hit.get("location") or {}
+            return {
+                "stop_id": str(hit["id"]),
+                "stop_name": _clean(hit["name"]),
+                "latitude": location.get("latitude"),
+                "longitude": location.get("longitude"),
+            }
+
+    params: dict[str, Any] = {"text": query, "type": "STOP"}
+    if home is not None:
+        params["place"] = f"{home[0]},{home[1]}"
+    response = await http.get(f"{transitous._base(conf)}/geocode", params=params)
+    response.raise_for_status()
+    hits = [
+        hit for hit in response.json()
+        if isinstance(hit, dict) and hit.get("id") and hit.get("lat") is not None
+        and (home is None or _haversine(*home, hit["lat"], hit["lon"]) <= NEAR_ENOUGH_M)
+    ]
+    if not hits:
+        raise Unresolved(f"no stop near home matches {query!r}")
+    hit = next(
+        (h for h in hits if _matches(h["name"], query, city_of(h.get("areas") or []))),
+        hits[0],
+    )
     return {
-        "stop_id": str(hit["id"]),
-        "stop_name": _clean(hit["name"]),
-        "latitude": location.get("latitude"),
-        "longitude": location.get("longitude"),
+        "transitous_stop_id": str(hit["id"]),
+        "stop_name": without_city(_clean(hit["name"]), city_of(hit.get("areas") or [])),
+        "latitude": hit["lat"],
+        "longitude": hit["lon"],
     }
 
 
@@ -146,7 +192,12 @@ async def apply(cfg: Config, http: httpx.AsyncClient) -> None:
         nonlocal changed
         key = f"{kind}:{query}"
         try:
-            found = await (_address if kind == "address" else _stop)(http, conf, query)
+            if kind == "address":
+                found = await _address(http, conf, query)
+            else:
+                home = (location["latitude"], location["longitude"]) \
+                    if "latitude" in location and "longitude" in location else None
+                found = await _stop(http, conf, query, home)
         except (httpx.HTTPError, Unresolved) as err:
             if key in remembered:
                 log.warning("looking up %s %r failed (%s); using the remembered answer",
@@ -172,25 +223,31 @@ async def apply(cfg: Config, http: httpx.AsyncClient) -> None:
         query = board.get("stop")
         if not query:
             continue
-        if board.get("stop_id"):
+        if board.get("stop_id") or board.get("transitous_stop_id"):
             # Pinned, so not looked up — but the name it was pinned under is
             # still the best heading there is.
             board.setdefault("stop_name", query)
             board.setdefault("name", query)
             continue
         found = await lookup("stop", query)
-        board["stop_id"] = found["stop_id"]
+        # One or the other: a board with only a Transitous id is skipped by
+        # BVG without counting against it (see sources.NotHere).
+        for key in ("stop_id", "transitous_stop_id"):
+            if found.get(key):
+                board[key] = found[key]
         board.setdefault("stop_name", found["stop_name"])
         board.setdefault("name", found["stop_name"])
-        if "walk_minutes" not in board and found["latitude"] is not None \
-                and "latitude" in location:
+        if found["latitude"] is not None and "latitude" in location:
             metres = _haversine(location["latitude"], location["longitude"],
                                 found["latitude"], found["longitude"])
             # Rounded up, as the public board does: erring the other way lists
-            # a tram you cannot reach.
-            board["walk_minutes"] = max(1, math.ceil(metres / METRES_PER_MINUTE))
+            # a tram you cannot reach. A measured walk_minutes in the config
+            # wins; the bike is shown beside it either way.
+            board.setdefault("walk_minutes", minutes_for(metres, METRES_PER_MINUTE))
+            board.setdefault("cycle_minutes", minutes_for(metres, CYCLE_METRES_PER_MINUTE))
         log.info("stop %r is %s (%s), %s min walk", query, found["stop_name"],
-                 found["stop_id"], board.get("walk_minutes", "default"))
+                 found.get("stop_id") or found.get("transitous_stop_id"),
+                 board.get("walk_minutes", "default"))
 
     if changed:
         _save(path, remembered)

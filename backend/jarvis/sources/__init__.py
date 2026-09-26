@@ -47,6 +47,16 @@ log = logging.getLogger(__name__)
 SOURCES: tuple[ModuleType, ...] = (bvg, transitous)
 
 
+class NotHere(LookupError):
+    """This source has nothing to say about this request, which is not a fault.
+
+    A wall board resolved outside Berlin carries only a Transitous id; BVG
+    cannot read it, and knows so before asking. Raised instead of a failure so
+    the breaker does not count it — otherwise one such board would trip BVG
+    for every other board on the wall.
+    """
+
+
 class NoSource(httpx.HTTPError):
     """Every source failed.
 
@@ -168,6 +178,9 @@ async def attempt(
         state = breaker(source.NAME)
         try:
             value = await getattr(source, operation)(**kwargs)
+        except NotHere:
+            reasons.append(f"{source.NAME}: not its stop")
+            continue
         except Exception as exc:  # noqa: BLE001 — any failure means "try the next one"
             state.failed()
             reasons.append(f"{source.NAME}: {type(exc).__name__}")

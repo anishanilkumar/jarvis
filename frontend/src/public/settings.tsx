@@ -11,6 +11,7 @@ import { useState } from 'preact/hooks'
 
 import { state } from '../signals'
 import type { Data as DepartureData } from '../widgets/departures'
+import { Reach } from '../widgets/departures/travel'
 import { forget, fromLink, hide, place, prefs, savePlace, savePrefs, shareUrl, show } from './place'
 import './settings.css'
 
@@ -70,7 +71,9 @@ function DepartureHides() {
                 onClick={() => (stop.hidden ? show(stop.hide) : hide(stop.hide))}
               >
                 {stop.name}
-                <span class="settings-chip-walk">{stop.walk_minutes} min</span>
+                <span class="settings-chip-walk">
+                  <Reach walk={stop.walk_minutes} cycle={stop.cycle_minutes} />
+                </span>
               </button>
             ))}
           </div>
