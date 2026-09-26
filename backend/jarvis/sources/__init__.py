@@ -137,7 +137,7 @@ def _ordered() -> list[ModuleType]:
 
 
 async def attempt(
-    operation: str, *, only: str | None = None, **kwargs: Any
+    operation: str, *, only: str | None = None, prefer: str | None = None, **kwargs: Any
 ) -> tuple[str, Any]:
     """Run one operation against each source until one answers.
 
@@ -151,11 +151,18 @@ async def attempt(
     ids that mean something to exactly one API; letting the other one try them
     would not fail, it would succeed emptily, and an empty board is drawn as a
     stop where nothing runs rather than as an error. Better to fail the request.
+
+    `prefer` tries one source first while it is healthy, without giving up the
+    other. Address search wants that: BVG's answers only Berlin and Brandenburg,
+    and would answer a Fürth street with a Potsdam one.
     """
     reasons: list[str] = []
     candidates = _ordered()
     if only is not None:
         candidates = [source for source in candidates if source.NAME == only]
+    elif prefer is not None:
+        first = [s for s in candidates if s.NAME == prefer and breaker(s.NAME).opened_at is None]
+        candidates = first + [s for s in candidates if s not in first]
 
     for source in candidates:
         state = breaker(source.NAME)

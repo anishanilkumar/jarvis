@@ -1,4 +1,4 @@
-"""Rate limiting and the Berlin box.
+"""Rate limiting, and the box the service answers inside.
 
 Both exist for the same reason: this service is a public front end to two APIs
 that are free, unauthenticated and somebody else's. The polite way to use them
@@ -15,22 +15,30 @@ from fastapi import Request
 
 
 class Bbox:
-    """Berlin, as a rectangle.
+    """Germany, as a rectangle.
 
     Checked on every coordinate that reaches the service, not only on the ones
     the address picker produced. The URL parameters take lat/lon directly —
     that is the point of them — so the picker is a courtesy and this is the
-    rule.
+    rule. A rectangle takes in slivers of every neighbour; that costs nothing,
+    because a stop search there finds the German feeds' stops or none.
     """
 
     def __init__(self, raw: dict[str, float]) -> None:
-        self.south = raw.get("south", 52.33)
-        self.north = raw.get("north", 52.68)
-        self.west = raw.get("west", 13.08)
-        self.east = raw.get("east", 13.77)
+        self.south = raw.get("south", 47.27)
+        self.north = raw.get("north", 55.06)
+        self.west = raw.get("west", 5.87)
+        self.east = raw.get("east", 15.04)
 
     def contains(self, lat: float, lon: float) -> bool:
         return self.south <= lat <= self.north and self.west <= lon <= self.east
+
+
+#: Berlin and Brandenburg — where BVG's API has stops. Inside it BVG stays the
+#: first source, because it alone carries the disruption notices; outside it
+#: BVG has nothing to say, and asking it anyway would spend its rate limit and,
+#: while it is down, ten seconds of every page load on the way to Transitous.
+VBB = Bbox({"south": 51.36, "north": 53.56, "west": 11.27, "east": 14.77})
 
 
 class RateLimiter:

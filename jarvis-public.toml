@@ -17,14 +17,15 @@ timezone = "Europe/Berlin"
 force_ipv4 = false
 
 [public]
-# Berlin, generously boxed. Enforced on every request, not only in the address
+# Germany, as a rectangle. Enforced on every request, not only in the address
 # picker: the URL parameters accept coordinates directly, and without this the
 # service is a free worldwide proxy for someone else's API quota.
 #
-# The VBB region extends well into Brandenburg, so the geocoder happily returns
-# Oranienburg and Borkwalde for a Berlin-sounding street. This is the line that
-# makes "within Berlin for now" true.
-bbox = { south = 52.33, north = 52.68, west = 13.08, east = 13.77 }
+# Inside Berlin and Brandenburg departures come from BVG first, which alone
+# carries the disruption notices; everywhere else from Transitous. That split
+# is in code (public/limits.py, VBB), not here, because it is a fact about
+# where BVG has stops rather than a setting.
+bbox = { south = 47.27, north = 55.06, west = 5.87, east = 15.04 }
 
 # How many stops around the address get a board, and how far to look. Three is
 # the number that covers a Berlin address without turning the page into a

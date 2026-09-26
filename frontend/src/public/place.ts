@@ -141,7 +141,7 @@ export function boot(): { query: string | null } {
   const lat = Number(params.get('lat'))
   const lon = Number(params.get('lon'))
   if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0) {
-    place.value = { lat, lon, name: params.get('name') || 'Berlin' }
+    place.value = { lat, lon, name: params.get('name') || 'Here' }
     // The link's hides, not this browser's. They are half of the view it was
     // copied from, and the stored ones were chosen for a different address
     // anyway. None in the link means none: that is what the sender saw.

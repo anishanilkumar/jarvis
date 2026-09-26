@@ -1,14 +1,15 @@
-"""Turning a typed Berlin address into coordinates.
+"""Turning a typed German address into coordinates.
 
-Uses the transport API's own location search rather than a general geocoder,
-for three reasons: it is the same upstream the departures already come from, so
-the page has one dependency instead of two; it is native to the region, so it
-knows Berlin street names and the way people abbreviate them; and it has no
-usage policy to breach on a public page.
+Transitous first, BVG second. Transitous geocodes all of Germany from
+OpenStreetMap, with house numbers where OSM has them; BVG's search knows only
+Berlin and Brandenburg, and answers a street it does not have with a
+similarly named one it does — a Fürth street with a Potsdam one — which is
+worse than no answer. BVG stays as the fallback: for a Berlin address it is as
+good, and the picker going down with one upstream is what turns an outage into
+"this site does not work".
 
-What it is *not* is Berlin-only. VBB covers Brandenburg too, so a search for a
-Berlin-sounding street returns Oranienburg and Borkwalde alongside it. Hence
-the filtering here, which is the honest half of "within Berlin for now".
+What the search is not is German-only. Transitous geocodes the planet, so
+results are filtered here on the country and, in the app, on the bounding box.
 """
 
 from __future__ import annotations
@@ -20,54 +21,62 @@ import httpx
 
 from jarvis import sources
 
-#: "10245 Berlin-Friedrichshain, Boxhagener Str. 1", and the plainer
-#: "10117 Berlin, Unter den Linden 1". Both shapes appear; anything else is
-#: left alone.
-_ADDRESS = re.compile(r"^(\d{5})\s+Berlin(?:-([^,]+))?,\s*(.+)$")
+#: How BVG writes an address: "10245 Berlin-Friedrichshain, Boxhagener Str. 1",
+#: "14467 Potsdam, Friedrich-Ebert-Str. 4". Only BVG's answers are taken apart;
+#: Transitous sends the parts as fields.
+_ADDRESS = re.compile(r"^(\d{5})\s+([^,]+),\s*(.+)$")
 
 
 def shape_hit(hit: dict[str, Any]) -> dict[str, Any] | None:
     """One search result, as the picker wants to show it.
 
-    Splitting the district off the street is what lets the list distinguish the
-    four Berlin streets that share a name without printing a postcode at the
-    front of every row, where it is the least useful thing on the line.
+    Splitting the district off the street is what lets the list tell apart the
+    four streets that share a name without printing a postcode at the front of
+    every row, where it is the least useful thing on the line. Outside Berlin
+    the "district" is the town.
     """
     lat, lon = hit.get("latitude"), hit.get("longitude")
     if lat is None or lon is None:
         return None
 
-    address = hit.get("address") or ""
-    match = _ADDRESS.match(address)
-    if match:
-        postcode, district, street = match.groups()
+    if "street" in hit:
+        name = hit.get("street") or hit.get("name") or ""
+        if not name:
+            return None
         return {
-            "name": street,
-            "district": district or "Berlin",
-            "postcode": postcode,
+            "name": name,
+            "district": hit.get("district") or "",
+            "postcode": hit.get("postcode") or "",
             "lat": lat,
             "lon": lon,
         }
 
-    # A point of interest, or an address the API spells some other way. Keep it
-    # if it is in Berlin at all — the bounding box decides that, not this.
+    address = hit.get("address") or ""
+    match = _ADDRESS.match(address)
+    if match:
+        postcode, place, street = match.groups()
+        # Only Berlin writes its districts after a hyphen. Elsewhere a hyphen
+        # is part of the town's name.
+        district = place[len("Berlin-"):] if place.startswith("Berlin-") else place
+        return {"name": street, "district": district, "postcode": postcode, "lat": lat, "lon": lon}
+
+    # A point of interest, or an address spelled some other way. The bounding
+    # box decides whether it is in scope, not this.
     name = hit.get("name") or address
     if not name:
         return None
     return {"name": name, "district": "", "postcode": "", "lat": lat, "lon": lon}
 
 
-def looks_berlin(hit: dict[str, Any]) -> bool:
-    """Whether the API itself calls this a Berlin address.
+def in_germany(hit: dict[str, Any]) -> bool:
+    """Whether the source itself puts this in Germany.
 
-    Belt and braces with the bounding box: the box catches coordinates, this
-    catches the handful of Brandenburg addresses that sit inside a rectangle
-    drawn around a city with a ragged border.
+    Belt and braces with the bounding box, which is a rectangle round a
+    country with a ragged border: it takes in Basel, Strasbourg and Salzburg.
+    BVG's answers carry no country and are all Berlin or Brandenburg.
     """
-    address = hit.get("address") or ""
-    if not address:
-        return True  # A POI with no address; leave it to the box.
-    return bool(_ADDRESS.match(address))
+    country = hit.get("country")
+    return country is None or country == "DE"
 
 
 async def search(
@@ -81,5 +90,6 @@ async def search(
     site does not work".
     """
     return await sources.attempt(
-        "locations", http=http, query=query, results=results, conf=conf
+        "locations", http=http, query=query, results=results, conf=conf,
+        prefer="transitous",
     )

@@ -6,7 +6,7 @@
  * you still make it" — onto someone who has no way to measure it. An address
  * the server can find stops around answers both.
  *
- * Berlin-only is enforced on the server, on coordinates, so this screen's job
+ * Germany-only is enforced on the server, on coordinates, so this screen's job
  * is to say so kindly rather than to be the check.
  */
 
@@ -135,7 +135,7 @@ export function Setup({ initial = '' }: { initial?: string }) {
   return (
     <div class="setup">
       <div class="setup-card">
-        <h1 class="setup-title">Berlin, from your doorstep</h1>
+        <h1 class="setup-title">From your doorstep</h1>
         <p class="setup-blurb">
           The weather, whether to take a jacket or an umbrella, and the next
           departures from the stops nearest you. Type your address — it stays in
@@ -148,7 +148,7 @@ export function Setup({ initial = '' }: { initial?: string }) {
           type="text"
           autocomplete="off"
           spellcheck={false}
-          placeholder="Street and number"
+          placeholder="Street, number and town"
           value={query}
           onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
           onKeyDown={keys}
@@ -157,7 +157,7 @@ export function Setup({ initial = '' }: { initial?: string }) {
         {status === 'searching' && <p class="setup-note">Looking…</p>}
         {status === 'empty' && (
           <p class="setup-note">
-            Nothing in Berlin matches that. Berlin only, for now.
+            Nothing in Germany matches that. Try the street with its town.
           </p>
         )}
         {/* Each of these says what was observed and stops there. The earlier

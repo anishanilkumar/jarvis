@@ -273,7 +273,7 @@ export function Dashboard() {
       )}
 
       <footer class="site-foot stamp">
-        Berlin only, for now · departures from{' '}
+        Germany · departures from{' '}
         {credited.map((source, index) => (
           <span key={source.href}>
             {index > 0 && ' + '}

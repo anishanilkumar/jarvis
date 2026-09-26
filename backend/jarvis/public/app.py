@@ -40,7 +40,7 @@ from jarvis.providers.weather import (
 from jarvis import sources
 from jarvis.public import geocode, nearby
 from jarvis.public.cache import TTLCache, round_coords
-from jarvis.public.limits import Bbox, RateLimiter, caller
+from jarvis.public.limits import VBB, Bbox, RateLimiter, caller
 
 SWEEP_SECONDS = 300
 
@@ -128,18 +128,18 @@ def _gate(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Slow down a moment.")
 
 
-def _in_berlin(lat: float, lon: float) -> None:
-    """Refuse coordinates outside the city.
+def _in_coverage(lat: float, lon: float) -> None:
+    """Refuse coordinates outside Germany.
 
     Enforced here rather than only in the address picker: the URL parameters
     accept lat/lon directly — that is the point of them — so the picker is a
     courtesy and this is the rule. Without it the service is a free worldwide
-    proxy for two APIs that are somebody else's to pay for.
+    proxy for APIs that are somebody else's to pay for.
     """
     if not service.bbox.contains(lat, lon):
         raise HTTPException(
             status_code=400,
-            detail="That location is outside Berlin. This dashboard only covers Berlin for now.",
+            detail="That location is outside Germany. This dashboard only covers Germany.",
         )
 
 
@@ -186,7 +186,7 @@ async def health() -> dict[str, Any]:
     # Reports which upstreams are currently being tried, so a degraded service
     # is visible from outside without reading the journal. Still "ok" while a
     # source is tripped: that is the fallback working, not the service failing.
-    return {"ok": True, "city": "Berlin", "sources": sources.health()}
+    return {"ok": True, "coverage": "Germany", "sources": sources.health()}
 
 
 @app.get("/api/geocode")
@@ -200,12 +200,17 @@ async def geocode_endpoint(
         _, hits = await _upstream(geocode.search(service.http, service.dep, q))
         found = []
         for hit in hits:
-            if not geocode.looks_berlin(hit):
+            if not geocode.in_germany(hit):
                 continue
             shaped = geocode.shape_hit(hit)
             if shaped and service.bbox.contains(shaped["lat"], shaped["lon"]):
                 found.append(shaped)
-        return found
+        # One building's entrances come back as separate hits with the same
+        # address, which as a list is the same line three times.
+        unique: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for shaped in found:
+            unique.setdefault((shaped["name"], shaped["district"], shaped["postcode"]), shaped)
+        return list(unique.values())
 
     # Served stale without comment, and only here: a street's coordinates do
     # not move, so an hour-old geocode is not stale in any sense the reader
@@ -220,7 +225,7 @@ async def weather_endpoint(
     request: Request, lat: float, lon: float
 ) -> dict[str, Any]:
     _gate(request)
-    _in_berlin(lat, lon)
+    _in_coverage(lat, lon)
     rounded = round_coords(lat, lon)
 
     async def produce() -> dict[str, Any]:
@@ -228,7 +233,7 @@ async def weather_endpoint(
             "latitude": rounded[0],
             "longitude": rounded[1],
             # Fixed rather than "auto" so the rounded pair fully determines the
-            # cache key — Berlin is one timezone and this is a Berlin-only page.
+            # cache key — Germany is one timezone.
             "timezone": service.timezone,
         }
 
@@ -276,7 +281,7 @@ async def departures_endpoint(
     hide: list[str] = Query(default=[]),
 ) -> dict[str, Any]:
     _gate(request)
-    _in_berlin(lat, lon)
+    _in_coverage(lat, lon)
     rounded = round_coords(lat, lon)
 
     async def produce() -> dict[str, Any]:
@@ -288,10 +293,12 @@ async def departures_endpoint(
                 rounded[1],
                 count=service.stop_candidates,
                 radius=service.stop_radius,
+                # Outside Berlin and Brandenburg BVG has no stops to find.
+                only=None if VBB.contains(*rounded) else "transitous",
             )
         )
         if not stops:
-            # Not an error. Berlin has addresses with no stop inside 900m, and
+            # Not an error. Plenty of addresses have no stop inside 900m, and
             # a page that says so is more useful than one that says "failed".
             return {"shaped": [], "warnings": [], "sources": []}
 

@@ -45,7 +45,7 @@ function App() {
   const [prefill, setPrefill] = useState(query ?? '')
   const [resolving, setResolving] = useState(!!query)
 
-  // ?q=<address>. An unambiguous Berlin match goes straight through; anything
+  // ?q=<address>. An unambiguous match goes straight through; anything
   // else opens the picker with the text already in it, because guessing between
   // two real streets is how you show someone the wrong tram.
   useEffect(() => {

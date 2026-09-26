@@ -153,7 +153,7 @@ check that tells you whether it worked, DNS and HTTPS — is
 
 ## A second front end: the public dashboard
 
-The same two answers, for anyone in Berlin, at
+The same two answers, for anyone in Germany, at
 **[abfahrt.anishsheela.com](https://abfahrt.anishsheela.com)**. A visitor types
 their address once; the page finds the stops around it and shows the weather, a
 jacket-or-umbrella call and departure boards for each one. The address lives in
@@ -166,8 +166,8 @@ strips, which hours a jacket decision is actually about. What they do not share
 is machinery: the public side has no provider registry, no scheduler, no SSE, no
 cache on disk, no secrets and no voice.
 
-How it picks stops for an address nobody configured, where the jacket threshold
-is applied and why Berlin-only is enforced twice:
+How it picks stops for an address nobody configured, where its departures come
+from outside Berlin, and where the jacket threshold is applied:
 [docs/public-dashboard.md](docs/public-dashboard.md).
 
 ## Voice, and no proprietary dependencies
@@ -192,7 +192,7 @@ derhuerst's ISC-licensed `hafas-rest-api`.
   voice models, the health check, DNS and why HTTPS is load-bearing.
 - [docs/tablet.md](docs/tablet.md) — kiosk browser, Companion App, and the
   vendor battery settings that otherwise kill the panel overnight.
-- [docs/public-dashboard.md](docs/public-dashboard.md) — the public Berlin
+- [docs/public-dashboard.md](docs/public-dashboard.md) — the public
   dashboard, and the decisions behind it.
 - [docs/voice.md](docs/voice.md) — the local voice stack, what leaving the cloud
   cost, and how to go back if you want to.

@@ -64,7 +64,9 @@ def _destination(direction: str) -> str:
     particular stop, the board's [groups] table overrides this entirely.
     """
     text = direction.split(" -> ")[0]          # onward connection, not our trip
-    text = re.split(r"\s+via\s+", text)[0]     # "Lindenhof via S Südkreuz"
+    # "Lindenhof via S Südkreuz", and Franconia's "Hallstadt ü. Friedhof" —
+    # "über", the same thing in the local timetable's German.
+    text = re.split(r"\s+(?:via|über|ü\.)\s+", text)[0]
     text = re.sub(r"\s*\([^)]*\)", "", text)   # "(Berlin)", "(TF)"
     text = text.split(",")[0]                  # "Zehlendorf, Busseallee"
     text = " ".join(text.split())
@@ -75,6 +77,11 @@ def _destination(direction: str) -> str:
             break
     if text.endswith(" Bhf"):
         text = text[: -len(" Bhf")]
+    # The same, spelled out, as feeds outside Berlin write it: "Dietzenbach
+    # Bahnhof" is Dietzenbach, "Hanau Hauptbahnhof" is Hanau Hbf. Only after a
+    # place name — a line that ends at "Hauptbahnhof" says so in full.
+    text = re.sub(r"(?<=\S) Bahnhof$", "", text)
+    text = re.sub(r"(?<=\S) Hauptbahnhof$", " Hbf", text)
 
     # Only as a suffix. "Hermannstraße" is one word and everyone reads
     # "Hermannstr.", but "Straße des 17. Juni" is a name that starts with the

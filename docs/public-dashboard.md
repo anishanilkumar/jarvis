@@ -1,7 +1,7 @@
 # The public dashboard
 
 The same two answers the wall gives — what the weather is doing and what you
-can catch — for anyone in Berlin, with no login and no household. Live at
+can catch — for anyone in Germany, with no login and no household. Live at
 [abfahrt.anishsheela.com](https://abfahrt.anishsheela.com).
 
 A visitor types their address once; the page finds the stops around it and
@@ -57,8 +57,8 @@ agree.
 hide a stop, or one direction of a line, from the opened departures tile. The
 jacket's argument would put that in the browser too, and there it breaks. The
 server looks at five stops, composes three boards, and keeps each route only at
-the nearest stop that gets a board. Hide a stop after that and its slot sits empty instead of
-going to the next stop out. Its U7 also vanishes, even though the station beyond
+the nearest stop that gets a board. Hide a stop after that and its slot sits
+empty instead of going to the next stop out. Its U7 also vanishes, even though the station beyond
 runs it too. So the cache holds every stop's shaped board, still keyed on
 rounded coordinates and shared. Composing runs per request with the visitor's
 `hide=` tokens, which is pure arithmetic over a warm cache. Trains hide by
@@ -66,13 +66,35 @@ platform, not destination: the S1 northbound at Yorckstr. is three destinations
 and one platform. Buses report no platform and hide by destination. The API
 issues the tokens, the page never parses them, and shared links carry them.
 
-**Berlin only, and why that is enforced twice.** The address search is VBB's,
-which covers Brandenburg too — searching a Berlin street name returns
-Oranienburg and Borkwalde behind it. So results are filtered, *and* every
-coordinate reaching the API is bounding-box checked. The second check is the
-real one: the URL parameters take lat/lon directly, and without it this would
-be a free worldwide proxy for two APIs that are somebody else's to pay for. A
-per-IP rate limit and a cap on concurrent upstream calls sit alongside it.
+**Germany, from two sources.** Inside Berlin and Brandenburg the stops and
+departures come from BVG first, because only BVG carries the disruption
+notices; everywhere else, and in Berlin whenever BVG is down, from Transitous,
+which reads Germany's national timetable (DELFI) and whatever live data each
+region publishes. Live delays are good where the regional network sends them —
+Munich, Köln, the Nuremberg area — and patchy where it doesn't, which in
+September 2026 included Hamburg. Transitous has no disruption notices anywhere,
+and the tile says which source it is on for that reason.
+
+Transitous needed more translating than a second source for Berlin did. Its
+nearby-stop search answers with five stops, so stops come from its map index
+instead — every platform in the radius, with the modes that serve it — grouped
+back into stations, which is what lets the stop choice prefer the S-Bahn over a
+fifth bus stop outside Berlin too. Stops from neighbouring countries' feeds and
+from a carpooling feed are dropped; long-distance coaches are dropped; a train
+carried by two feeds is kept once. The town is taken off the front of stop
+names and destinations ("Fürth Rathaus" is "Rathaus" on a page about Fürth),
+and train numbers off line names ("RE19 (4913)", "ICE 1518").
+
+The address search goes to Transitous first for the same reason in reverse:
+BVG's knows only Berlin and Brandenburg, and answers a Fürth street with a
+Potsdam one.
+
+**Why coverage is enforced twice.** Search results are filtered to Germany,
+*and* every coordinate reaching the API is bounding-box checked. The second
+check is the real one: the URL parameters take lat/lon directly, and without it
+this would be a free worldwide proxy for APIs that are somebody else's to pay
+for. A per-IP rate limit and a cap on concurrent upstream calls sit alongside
+it.
 
 **Links carry the whole view.** `?lat=&lon=&name=&jacket=` opens straight onto
 a dashboard with no lookup; `?q=<address>` is geocoded on load and goes

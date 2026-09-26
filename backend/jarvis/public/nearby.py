@@ -32,11 +32,12 @@ POOLED = ("bus",)
 #: isn't one stop.
 POOLED_NAME = "Buses"
 
-#: The API suffixes every stop in the city with " (Berlin)", which on a
-#: Berlin-only page is the one word on the line carrying no information. The
-#: rest of the name is left exactly as reported: unlike a destination, a stop
-#: name earns its prefixes — "S+U Yorckstr." tells you which platforms are
-#: there, and shortening it would cost the reader that.
+#: BVG suffixes every stop in the city with " (Berlin)", which on a page about
+#: the stops around one address is the one word on the line carrying no
+#: information. (Transitous puts the town in front instead; its source strips
+#: that itself.) The rest of the name is left exactly as reported: unlike a
+#: destination, a stop name earns its prefixes — "S+U Yorckstr." tells you
+#: which platforms are there, and shortening it would cost the reader that.
 #: Not anchored to the end: the API writes "U Alexanderplatz (Berlin) [Tram]",
 #: so a $-anchored version left the city name sitting in the middle of the
 #: heading with the mode after it.
@@ -132,6 +133,7 @@ async def stops_near(
     *,
     count: int,
     radius: int,
+    only: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Up to `count` stops within `radius` metres, nearest first, from whichever
     source answers.
@@ -147,7 +149,8 @@ async def stops_near(
     truncating first would hand it the three nearest and no S-Bahn.
     """
     name, found = await sources.attempt(
-        "nearby", http=http, lat=lat, lon=lon, count=count, radius=radius, conf=conf
+        "nearby", http=http, lat=lat, lon=lon, count=count, radius=radius, conf=conf,
+        only=only,
     )
 
     seen: set[str] = set()
@@ -191,6 +194,9 @@ def board_for(stop: dict[str, Any], *, metres_per_minute: float) -> dict[str, An
         # optimistic. Erring the other way would list a tram you cannot reach.
         "walk_minutes": max(1, math.ceil(distance / metres_per_minute)),
         "order": "line",
+        # The town, where the source knows it, so the departures can drop it
+        # from the front of each destination as the stop name already has.
+        **({"city": stop["city"]} if stop.get("city") else {}),
     }
 
 

@@ -32,7 +32,9 @@ Three things it cannot do, all of them known and none of them fatal:
 
 from __future__ import annotations
 
+import asyncio
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -105,6 +107,131 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius * math.asin(math.sqrt(a))
 
 
+#: Administrative levels in the areas MOTIS attaches to a place, as OSM numbers
+#: them for Germany: 4 is the Land (and the whole city in Berlin and Hamburg), 6
+#: a kreisfreie Stadt or a Landkreis, 8 a Gemeinde, 9 and 10 the parts of a
+#: city.
+_LAND, _KREIS, _GEMEINDE = 4, 6, 8
+
+
+def _area(areas: list[dict[str, Any]], level: int) -> str | None:
+    for area in areas:
+        if area.get("adminLevel") == level and area.get("name"):
+            return str(area["name"])
+    return None
+
+
+def city_of(areas: list[dict[str, Any]]) -> str | None:
+    """The town a place is in, as its own stops and signs would name it.
+
+    The Gemeinde if there is one — Hirschaid, not Landkreis Bamberg — else the
+    kreisfreie Stadt (Fürth), else the Land for the city-states, where Berlin
+    and Hamburg are all three at once.
+    """
+    kreis = _area(areas, _KREIS)
+    if kreis and kreis.startswith("Landkreis"):
+        kreis = None
+    return _area(areas, _GEMEINDE) or kreis or _area(areas, _LAND)
+
+
+def district_of(areas: list[dict[str, Any]]) -> str | None:
+    """What the address picker prints beside a street, to tell four apart.
+
+    Inside a city-state that is the Ortsteil, as BVG's own answers have it —
+    "Mitte", "Friedrichshain". Anywhere else it is the town: a Fürth street is
+    told apart from a Bamberg one by the town, and the town's own parts are
+    names nobody from elsewhere would recognise.
+    """
+    if _area(areas, _GEMEINDE) or _area(areas, _KREIS):
+        return city_of(areas)
+    return _area(areas, 10) or _area(areas, 9) or _area(areas, _LAND)
+
+
+def without_city(name: str, city: str | None) -> str:
+    """ "Fürth Rathaus" -> "Rathaus", "Köln Niehl Sebastianstr." -> "Niehl
+    Sebastianstr.", "Berlin, Brunnenstr." -> "Brunnenstr."
+
+    The German feeds put the town in front of every stop and many destinations,
+    which on a page already about that town is the one word carrying nothing —
+    the same argument as dropping BVG's " (Berlin)". Only a leading town, and
+    only when something is left after it: "Wesseling Wesseling" keeps one.
+
+    A town with a qualifier in its official name is matched on the name alone:
+    OSM calls it "Heiligenstadt i. OFr." and its stops "Heiligenstadt
+    Raiffeisenstr." or "Heiligenstadt (i.OFr.) Schulen".
+    """
+    if not city:
+        return name
+    bases = {city, re.split(r"\s+(?:i\.|a\.|an der|am|im|\()", city)[0].strip()}
+    for base in sorted(bases, key=len, reverse=True):
+        match = re.match(rf"{re.escape(base)}(?:\s*\([^)]*\))?(?:,\s*|\s+)(?=\S)", name)
+        if match:
+            return name[match.end():].strip()
+    return name
+
+
+#: "RE19 (4913)" and "ICE 1518": the line and the number of this one train. The
+#: number is a fact about one run, and on a row that stands for every run of the
+#: line it splits one route into as many rows as there are trains — every ICE
+#: through Frankfurt its own line. Long-distance trains have no line number to
+#: keep, so they fold to their class and are told apart by destination.
+_TRAIN_NUMBER = re.compile(r"^(ICE|IC|EC|ECE|EN|NJ|RJ|RJX|FLX|TGV)\s+\d+$|\s*\(\d+\)$")
+
+
+def _line_name(name: str) -> str:
+    return _TRAIN_NUMBER.sub(lambda match: match.group(1) or "", name).strip()
+
+#: Coaches share stations with local buses — BlaBlaCar and Flix at the Hbf — and
+#: are not what a doorstep board is for: booked in advance, once a day, to
+#: another city.
+_SKIP_MODES = {"COACH"}
+
+
+def _german_transit(stop_id: str) -> bool:
+    """Whether a stop comes from a German public-transport feed.
+
+    Transitous merges every feed it has, so the stops around Köln Hbf include the
+    Belgian railway's copy of it, and around Marienplatz a carpooling feed's
+    (amarillo) — offers of a lift, which on a departure board would read as a
+    bus that may or may not exist. Both are dropped where a German feed has the
+    place covered.
+    """
+    return stop_id.startswith("de-") and "amarillo" not in stop_id
+
+
+async def _stops_in_box(
+    http: httpx.AsyncClient, conf: dict[str, Any], lat: float, lon: float, radius: int
+) -> list[dict[str, Any]]:
+    dlat = radius / 111_320
+    dlon = radius / (111_320 * max(math.cos(math.radians(lat)), 0.01))
+    response = await http.get(
+        f"{_base(conf)}/map/stops",
+        params={"min": f"{lat - dlat},{lon - dlon}", "max": f"{lat + dlat},{lon + dlon}"},
+    )
+    response.raise_for_status()
+    rows = response.json()
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+async def _areas_at(
+    http: httpx.AsyncClient, conf: dict[str, Any], lat: float, lon: float
+) -> list[dict[str, Any]]:
+    """The administrative areas at a point, for the town's name. Best-effort:
+    without it the stop names simply keep their town prefix."""
+    try:
+        response = await http.get(
+            f"{_base(conf)}/reverse-geocode", params={"place": f"{lat},{lon}", "type": "STOP"}
+        )
+        response.raise_for_status()
+        rows = response.json()
+    except (httpx.HTTPError, ValueError):
+        return []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("areas"):
+            return row["areas"]
+    return []
+
+
 async def nearby(
     http: httpx.AsyncClient,
     *,
@@ -116,43 +243,75 @@ async def nearby(
 ) -> list[dict[str, Any]]:
     """Stops near a point, shaped as BVG's /locations/nearby answers.
 
-    This is also what makes the fallback usable at all on the public side:
-    the ids come back resolved, so there is no mapping to get wrong.
+    From the map's stop index rather than reverse geocoding, which answers with
+    the five best-scored stops and no more: around Fürth Rathaus that is five
+    bus stops, and the one that should get a board — the S-Bahn six hundred
+    metres out — never comes up. The index returns every platform in the box,
+    each with the modes that serve it, so they are grouped back into stations
+    here and carry `products` the way BVG's do. That is what lets the choice of
+    stops go by mode outside Berlin too, instead of nearest-first.
+
+    Any platform's id does for the station: MOTIS answers a departures query for
+    one platform with the whole station's.
     """
-    response = await http.get(
-        f"{_base(conf)}/reverse-geocode",
-        params={"place": f"{lat},{lon}", "type": "STOP"},
+    rows, areas = await asyncio.gather(
+        _stops_in_box(http, conf, lat, lon, radius), _areas_at(http, conf, lat, lon)
     )
-    response.raise_for_status()
+    city = city_of(areas)
 
-    payload = response.json()
-    rows = payload if isinstance(payload, list) else payload.get("places") or []
+    german = [row for row in rows if _german_transit(str(row.get("stopId") or ""))]
+    rows = german or rows
 
-    stops: list[dict[str, Any]] = []
+    stations: dict[str, dict[str, Any]] = {}
     for row in rows:
-        if not isinstance(row, dict) or not row.get("id") or not row.get("name"):
-            continue
-        if row.get("lat") is None or row.get("lon") is None:
+        stop_id, name = row.get("stopId"), row.get("name")
+        if not stop_id or not name or row.get("lat") is None or row.get("lon") is None:
             continue
         distance = _haversine(lat, lon, row["lat"], row["lon"])
         if distance > radius:
             continue
-        stops.append(
-            {
-                "id": row["id"],
-                "name": row["name"],
+        products = {
+            _PRODUCTS[mode]
+            for mode in row.get("modes") or []
+            if mode in _PRODUCTS
+        }
+        key = " ".join(str(name).split()).casefold()
+        station = stations.get(key)
+        if station is None:
+            stations[key] = {
+                "id": row.get("parentId") or stop_id,
+                "name": without_city(str(name), city),
                 "distance": round(distance),
                 "location": {"latitude": row["lat"], "longitude": row["lon"]},
+                "products": {product: True for product in products},
+                "city": city,
             }
-        )
+            continue
+        station["products"].update({product: True for product in products})
+        if row.get("parentId"):
+            station["id"] = row["parentId"]
+        if distance < station["distance"]:
+            station["distance"] = round(distance)
+            station["location"] = {"latitude": row["lat"], "longitude": row["lon"]}
 
-    # MOTIS orders by its own relevance score, not by distance, and the boards
-    # are laid out nearest-first.
-    stops.sort(key=lambda stop: stop["distance"])
-    return stops[: count * 3]
+    found = sorted(stations.values(), key=lambda stop: stop["distance"])
+    return found[: count * 3]
 
 
-def _departure(row: dict[str, Any]) -> dict[str, Any] | None:
+#: What some feeds put where a platform goes. It names the mode, not a place to
+#: stand, and read as a platform it would fold both directions of every bus at
+#: a stop into one — so hiding one direction would hide the other.
+_NOT_PLATFORMS = {"bus", "u-bahn", "s-bahn", "tram", "straßenbahn", "zug", "bahn"}
+
+
+def _platform(place: dict[str, Any]) -> str | None:
+    text = place.get("description") or place.get("track")
+    if not text or str(text).strip().casefold() in _NOT_PLATFORMS:
+        return None
+    return str(text).strip()
+
+
+def _departure(row: dict[str, Any], city: str | None = None) -> dict[str, Any] | None:
     """One MOTIS stopTime as the HAFAS departure the shaping expects."""
     place = row.get("place") or {}
     when = _moment(place.get("departure"))
@@ -174,10 +333,12 @@ def _departure(row: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "tripId": row.get("tripId"),
         "line": {
-            "name": row.get("routeShortName") or "?",
+            "name": _line_name(row.get("routeShortName") or "") or "?",
             "product": _PRODUCTS.get(str(row.get("mode") or "").upper()),
         },
-        "direction": row.get("headsign") or "",
+        # "Köln Niehl Sebastianstr." from a Köln stop: the town is where you
+        # already are.
+        "direction": without_city(row.get("headsign") or "", city),
         "when": when,
         "plannedWhen": planned,
         "delay": delay,
@@ -188,7 +349,7 @@ def _departure(row: dict[str, Any]) -> dict[str, Any] | None:
         # gives a bare platform number. Passed through as-is: the panel prints
         # whatever it is told, and the description is the more useful of the two
         # on foot.
-        "platform": place.get("description"),
+        "platform": _platform(place),
         # Nothing to put here. See the module docstring — this is the one thing
         # the fallback genuinely cannot supply.
         "remarks": [],
@@ -229,6 +390,12 @@ async def resolve_stop(
         return str(declared)
 
     key = str(board.get("stop_id") or "")
+    # Already one of ours: a stop this source found itself. BVG's ids are all
+    # digits; Transitous's carry their feed ("de-DELFI_de:09563:2164"). Looking
+    # one up again by name is not merely a wasted call — a name is not unique
+    # across Germany, and "Rathaus" found Stuttgart's for a Hamburg board.
+    if key and not key.isdigit():
+        return key
     if key in _resolved:
         return _resolved[key]
 
@@ -273,11 +440,18 @@ async def departures(
     wanted = {product.lower() for product in board.get("products") or []}
     cutoff = datetime.now(timezone.utc) + timedelta(minutes=int(minutes))
 
+    raw = [row for row in response.json().get("stopTimes") or [] if isinstance(row, dict)]
+    # German feeds first, so where a neighbour's feed carries the same train —
+    # the Austrian railway's copy of an ICE through Frankfurt — the German one
+    # is the copy kept below.
+    raw.sort(key=lambda row: "_de-" not in str(row.get("tripId") or ""))
+
     rows: list[dict[str, Any]] = []
-    for row in response.json().get("stopTimes") or []:
-        if not isinstance(row, dict):
+    seen: set[tuple[str, str | None]] = set()
+    for row in raw:
+        if str(row.get("mode") or "").upper() in _SKIP_MODES:
             continue
-        departure = _departure(row)
+        departure = _departure(row, board.get("city"))
         if departure is None:
             continue
         # Applied here rather than on the wire, which MOTIS does not offer.
@@ -286,39 +460,15 @@ async def departures(
         at = _parse(departure["when"] or departure["plannedWhen"])
         if at is not None and at > cutoff:
             continue
+        # One train, two feeds: same line, same timetabled minute.
+        key = (departure["line"]["name"], departure["plannedWhen"] or departure["when"])
+        if key in seen:
+            continue
+        seen.add(key)
         rows.append(departure)
 
     rows.sort(key=lambda d: d["when"] or d["plannedWhen"] or "")
     return {"departures": rows}
-
-
-def _berlin_address(hit: dict[str, Any]) -> str | None:
-    """A MOTIS address as HAFAS spells one, or None to leave it as a POI.
-
-    The picker's parser reads "10245 Berlin-Friedrichshain, Boxhagener Str. 1"
-    and splits the district off the street; MOTIS delivers the same facts as
-    separate fields plus a list of administrative areas. Level 4 is the city,
-    10 the Ortsteil that BVG names, 9 the Bezirk it falls back to.
-    """
-    areas = hit.get("areas") or []
-
-    def named(level: int) -> str | None:
-        for area in areas:
-            if area.get("adminLevel") == level:
-                return area.get("name")
-        return None
-
-    if named(4) != "Berlin":
-        return None
-
-    postcode, street = hit.get("zip"), hit.get("street") or hit.get("name") or ""
-    if not postcode or not street:
-        return None
-
-    number = hit.get("houseNumber")
-    line = f"{street} {number}".strip() if number else street
-    district = named(10) or named(9)
-    return f"{postcode} Berlin-{district}, {line}" if district else f"{postcode} Berlin, {line}"
 
 
 async def locations(
@@ -328,12 +478,19 @@ async def locations(
     results: int,
     conf: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Address search, shaped as BVG's /locations answers.
+    """Address search, shaped as BVG's /locations answers, plus the parts.
 
-    MOTIS geocodes the whole planet from one text box, so "Berlin" alone finds
-    a bar in Cotonou. Nothing is filtered out for that here — the bounding box
-    in the public app is the rule and this is not the place to duplicate it —
-    beyond dropping stops, which the picker excludes on purpose.
+    BVG hands back one string ("10115 Berlin-Mitte, Invalidenstr. 49") that the
+    picker takes apart again; MOTIS has the parts, so they travel as fields —
+    `street`, `postcode`, `district`, `country` — and the picker uses them
+    as they are. Taking a formatted string apart is how "Garmisch-Partenkirchen"
+    becomes the Partenkirchen district of Garmisch.
+
+    MOTIS geocodes the whole planet from one text box. Nothing is filtered for
+    that here beyond dropping stops, which the picker excludes on purpose; the
+    country and the bounding box are the public app's rule. The search leans
+    towards Berlin, where most of the page's visitors are, which only ranks —
+    "Königstraße 20, Fürth" still finds Fürth.
     """
     response = await http.get(
         f"{_base(conf)}/geocode",
@@ -347,13 +504,21 @@ async def locations(
             continue
         if hit.get("lat") is None or hit.get("lon") is None:
             continue
+        areas = hit.get("areas") or []
+        street = hit.get("street") or hit.get("name") or ""
+        number = hit.get("houseNumber")
+        if number and not street.endswith(str(number)):
+            street = f"{street} {number}"
         hits.append(
             {
                 "type": "location",
                 "name": hit.get("name"),
-                "address": _berlin_address(hit),
                 "latitude": hit["lat"],
                 "longitude": hit["lon"],
+                "street": street,
+                "postcode": hit.get("zip") or "",
+                "district": district_of(areas) or "",
+                "country": hit.get("country") or "",
             }
         )
         if len(hits) >= results:

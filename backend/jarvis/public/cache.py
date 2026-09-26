@@ -33,7 +33,7 @@ from typing import Any, Awaitable, Callable
 
 
 def round_coords(lat: float, lon: float, places: int = 3) -> tuple[float, float]:
-    """A cache key from a location. ~110m at three decimals in Berlin."""
+    """A cache key from a location. ~110m north-south at three decimals, a little less east-west."""
     return (round(lat, places), round(lon, places))
 
 
