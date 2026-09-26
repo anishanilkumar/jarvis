@@ -117,6 +117,13 @@ wall and one for the public board, and the address and stops are lines in the
 host's config:
 
 ```nix
+# the host's flake.nix
+inputs.jarvis.url = "github:anishanilkumar/jarvis";
+inputs.jarvis.inputs.nixpkgs.follows = "nixpkgs";
+
+# in its modules
+imports = [ inputs.jarvis.nixosModules.wall ];
+
 services.jarvis = {
   enable = true;
   address = "Invalidenstraße 50, Berlin";
@@ -133,6 +140,12 @@ JARVIS_HOST=you@yourpi JARVIS_CONFIG_REPO=~/your-pi-flake ./deploy.sh
 
 It fails loudly if the backend doesn't come back healthy. The modules, the
 options and the deploy: [docs/nixos.md](docs/nixos.md).
+
+The deploy scripts are NixOS-only: they rebuild a NixOS host from its config
+repo. Anywhere else, run the backend as above under a service manager, pointed
+at your `jarvis.toml` with `JARVIS_CONFIG`, and serve `frontend/dist/` (from
+`npm run build`) with `/api/` proxied to port 8140 — [docs/wall.md](docs/wall.md)
+has the rest.
 
 Standing the wall up the rest of the way — voice models, secrets, the health
 check that tells you whether it worked, DNS and HTTPS — is
