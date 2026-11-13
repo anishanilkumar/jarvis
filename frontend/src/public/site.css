@@ -161,6 +161,11 @@ body {
   color: var(--arc);
 }
 
+/* Settings pushes inline on narrow windows, so it has no scrim there. */
+.settings-scrim {
+  display: none;
+}
+
 /* ---- The opened tile --------------------------------------------------- */
 
 .sheet-scrim {
@@ -170,7 +175,9 @@ body {
   display: grid;
   place-items: center;
   padding: var(--gap);
-  background: rgba(6, 9, 14, 0.72);
+  /* The house backdrop: the ground at 82%, which dims the dashboard without
+     hiding it. Never black. */
+  background: color-mix(in srgb, var(--ground) 82%, transparent);
   animation: sheet-in 160ms var(--ease);
 }
 
@@ -322,8 +329,16 @@ body {
 
   /* Settings floats rather than pushing. As a flex child it would steal height
      from the grid and force exactly the scrollbar this layout exists to avoid.
-     The huge spread on the shadow is the scrim — no extra element, and it dims
-     the dashboard rather than hiding it. */
+     Its scrim is a real element, the same backdrop as an opened tile's. It was
+     once a 100vmax box-shadow spread: no extra element, but a shadow in a
+     style that has none, and it let clicks through to the dashboard. */
+  .settings-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    background: color-mix(in srgb, var(--ground) 82%, transparent);
+  }
   .settings {
     position: fixed;
     top: 50%;
@@ -334,7 +349,6 @@ body {
     max-height: 86vh;
     overflow-y: auto;
     border: var(--rule) solid var(--engrave);
-    box-shadow: 0 0 0 100vmax rgba(6, 9, 14, 0.72);
   }
 }
 

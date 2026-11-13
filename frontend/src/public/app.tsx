@@ -207,7 +207,14 @@ export function Dashboard() {
         </div>
       </header>
 
-      {settingsOpen && <Settings onClose={() => setSettings(false)} />}
+      {settingsOpen && (
+        <>
+          {/* Only drawn where Settings floats (site.css, wide windows); a click
+              on it closes Settings, as a click outside a tile's sheet does. */}
+          <div class="settings-scrim" aria-hidden="true" onClick={() => setSettings(false)} />
+          <Settings onClose={() => setSettings(false)} />
+        </>
+      )}
 
       <main class="site-grid">
         {TILES.map(({ widget, title }) => {
